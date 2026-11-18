@@ -49,13 +49,15 @@ class Settings(BaseSettings):
     whisper_enabled: bool = True
     whisper_model: str = "base"
 
-    min_viral_score: float = 7.0
+    min_viral_score: float = 8.0
     clip_min_seconds: int = 28
     clip_max_seconds: int = 45
     min_speech_words: int = 8
     min_non_silent_ratio: float = 0.25
-    max_daily_youtube_per_pipeline: int = 3
-    min_publish_interval_minutes: int = 120
+    max_daily_youtube_per_pipeline: int = 4
+    min_publish_interval_minutes: int = 210
+    max_queue_per_pipeline: int = 12
+    live_spike_cooldown_seconds: int = 900
 
     twitch_client_id: str = ""
     twitch_client_secret: str = ""

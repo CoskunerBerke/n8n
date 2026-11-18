@@ -239,3 +239,42 @@ def test_youtube_publish_pacing(isolated_env: Path) -> None:
     assert after["published_last_24h"] == 1
     assert after["minutes_since_last_publish"] is not None
     assert after["minutes_since_last_publish"] < 1.0
+
+
+def test_queue_cap_and_schedule(isolated_env: Path) -> None:
+    rendered_dir = isolated_env / "rendered"
+    rendered_dir.mkdir(parents=True, exist_ok=True)
+    for idx, score in enumerate((7.5, 9.6, 8.9, 6.2), start=1):
+        mp4 = rendered_dir / f"q_{idx}.mp4"
+        mp4.write_bytes(b"fake_mp4")
+        db.insert_clip(
+            {
+                "id": f"q_{idx}",
+                "pipeline_id": "global",
+                "streamer_username": "kaicenat",
+                "streamer_display_name": "Kai Cenat",
+                "source_platform": "twitch",
+                "source_type": "live_spike",
+                "source_id": f"src_q_{idx}",
+                "source_url": f"https://twitch.tv/kaicenat/q_{idx}",
+                "rendered_path": str(mp4),
+                "viral_score": score,
+                "duration_sec": 35.0,
+                "status": "pending_review",
+                "youtube_title": f"Clip {idx}",
+            }
+        )
+
+    evicted = db.enforce_queue_cap("global", 2)
+    assert evicted == 2
+    # Highest-scoring two (9.6 and 8.9) survive; lowest two are evicted and files deleted
+    assert (rendered_dir / "q_2.mp4").exists()
+    assert (rendered_dir / "q_3.mp4").exists()
+    assert not (rendered_dir / "q_1.mp4").exists()
+    assert not (rendered_dir / "q_4.mp4").exists()
+
+    sched = db.compute_pipeline_schedule("global", daily_cap=4, interval_minutes=210)
+    assert [c["id"] for c in sched] == ["q_2", "q_3"]
+    assert sched[0]["queue_rank"] == 1
+    assert sched[1]["queue_rank"] == 2
+    assert sched[1]["scheduled_for"] > sched[0]["scheduled_for"]

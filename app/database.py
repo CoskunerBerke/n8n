@@ -510,7 +510,10 @@ def list_clips(
     if status:
         query += " AND status = ?"
         params.append(status)
-    query += " ORDER BY created_at DESC LIMIT ?"
+    if status == "pending_review":
+        query += " ORDER BY viral_score DESC, duration_sec DESC, created_at ASC LIMIT ?"
+    else:
+        query += " ORDER BY created_at DESC LIMIT ?"
     params.append(limit)
     with get_conn() as conn:
         rows = conn.execute(query, params).fetchall()
@@ -605,3 +608,125 @@ def get_publish_pacing(pipeline_id: str) -> dict[str, Any]:
         "published_last_24h": len(rows),
         "minutes_since_last_publish": minutes_since_last,
     }
+
+
+def get_next_queued_clip(pipeline_id: str) -> Optional[dict[str, Any]]:
+    """Return highest-scoring queued clip ready for scheduled YouTube upload."""
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM clips
+            WHERE pipeline_id = ?
+              AND status = 'pending_review'
+              AND rendered_path != ''
+            ORDER BY viral_score DESC, duration_sec DESC, created_at ASC
+            LIMIT 1
+            """,
+            (pipeline_id,),
+        ).fetchone()
+        return _clip_from_row(row) if row else None
+
+
+def enforce_queue_cap(pipeline_id: str, max_keep: int) -> int:
+    """Keep only top max_keep queued clips per pipeline and free disk for excess clips."""
+    if max_keep < 1:
+        return 0
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, rendered_path, contact_sheet_path FROM clips
+            WHERE pipeline_id = ? AND status = 'pending_review'
+            ORDER BY viral_score DESC, duration_sec DESC, created_at ASC
+            """,
+            (pipeline_id,),
+        ).fetchall()
+        if len(rows) <= max_keep:
+            return 0
+        overflow = rows[max_keep:]
+        now = utc_now_iso()
+        for r in overflow:
+            for p_col in ("rendered_path", "contact_sheet_path"):
+                raw = str(r[p_col] or "").strip()
+                if raw:
+                    try:
+                        Path(raw).unlink(missing_ok=True)
+                    except OSError:
+                        pass
+            conn.execute(
+                """
+                UPDATE clips
+                SET status = 'rejected',
+                    reject_reason = 'Kuyruk dolu (daha yüksek puanlı klipler korundu)',
+                    rendered_path = '',
+                    contact_sheet_path = '',
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (now, r["id"]),
+            )
+        return len(overflow)
+
+
+def compute_pipeline_schedule(
+    pipeline_id: str,
+    daily_cap: int,
+    interval_minutes: int,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """Return queued clips enriched with queue_rank and estimated scheduled_for ISO timestamp."""
+    now = datetime.now(timezone.utc)
+    cutoff_iso = (now - timedelta(hours=24)).isoformat()
+    with get_conn() as conn:
+        pub_rows = conn.execute(
+            """
+            SELECT updated_at FROM clips
+            WHERE pipeline_id = ?
+              AND status = 'published'
+              AND youtube_video_id != ''
+              AND updated_at >= ?
+            ORDER BY updated_at ASC
+            """,
+            (pipeline_id, cutoff_iso),
+        ).fetchall()
+        queued_rows = conn.execute(
+            """
+            SELECT * FROM clips
+            WHERE pipeline_id = ?
+              AND status = 'pending_review'
+              AND rendered_path != ''
+            ORDER BY viral_score DESC, duration_sec DESC, created_at ASC
+            LIMIT ?
+            """,
+            (pipeline_id, limit),
+        ).fetchall()
+
+    recent_publishes: list[datetime] = []
+    for r in pub_rows:
+        try:
+            recent_publishes.append(datetime.fromisoformat(str(r["updated_at"]).replace("Z", "+00:00")))
+        except ValueError:
+            continue
+
+    cursor = now
+    if recent_publishes:
+        cursor = max(cursor, recent_publishes[-1] + timedelta(minutes=interval_minutes))
+
+    cap = max(1, daily_cap)
+    scheduled_clips: list[dict[str, Any]] = []
+    for idx, row in enumerate(queued_rows, start=1):
+        clip = _clip_from_row(row)
+        while True:
+            window_start = cursor - timedelta(hours=24)
+            active_in_24h = [t for t in recent_publishes if t > window_start]
+            if len(active_in_24h) < cap:
+                break
+            oldest_in_window = min(active_in_window)
+            cursor = max(cursor, oldest_in_window + timedelta(hours=24, minutes=1))
+
+        clip["queue_rank"] = idx
+        clip["scheduled_for"] = cursor.isoformat()
+        scheduled_clips.append(clip)
+        recent_publishes.append(cursor)
+        cursor = cursor + timedelta(minutes=interval_minutes)
+
+    return scheduled_clips

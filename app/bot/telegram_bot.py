@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
@@ -103,6 +104,17 @@ class TelegramBotService:
             keyboard = {"inline_keyboard": []}
         else:
             cid = clip["id"]
+            if clip.get("queue_rank"):
+                sched_str = ""
+                if clip.get("scheduled_for"):
+                    try:
+                        sched_str = " (" + datetime.fromisoformat(clip["scheduled_for"]).astimezone().strftime("%d.%m %H:%M") + ")"
+                    except ValueError:
+                        pass
+                caption = (
+                    f"📅 YOUTUBE YAYIN SIRASINA ALINDI! (#Sıra: {clip['queue_rank']}{sched_str})\n"
+                    f"📱 Instagram için videoyu kaydedip açıklamayı kopyalayabilirsin.\n\n{caption}"
+                )[:1010]
             if ig_configured:
                 keyboard = {
                     "inline_keyboard": [
@@ -197,6 +209,7 @@ class TelegramBotService:
                 f"Chat ID'niz: {chat_id}\n\n"
                 "Komutlar:\n"
                 "/durum - Canlı yayınlar ve günlük istatistik\n"
+                "/kuyruk - Sıradaki planlı YouTube yayın saatleri\n"
                 "/tara tr | /tara global - Hemen klip taraması başlat\n"
                 "/klip <tr|global> <url> - Linkten anında 9:16 klip üret\n"
                 "/yayinci_ekle <tr|global> <kick|twitch|youtube> <isim>\n"
@@ -220,9 +233,32 @@ class TelegramBotService:
                 mode = "OTOPİLOT AÇIK" if p["autopilot"] else "Onaylı Mod"
                 lines.append(
                     f"\n[{p['id'].upper()}] {p['name']} ({mode})\n"
-                    f"Canlı İzlenen: {st['live_now']} | Bekleyen: {st['pending_review']} | "
+                    f"Canlı İzlenen: {st['live_now']} | Sırada: {st['pending_review']} | "
                     f"Yayınlanan: {st['published']} | Elenen: {st['rejected']}"
                 )
+            await self.send_text("\n".join(lines), chat_id=chat_id)
+
+        elif cmd == "/kuyruk":
+            s = get_settings()
+            lines = [
+                f"📅 YouTube Yayın Sırası (Günde {s.max_daily_youtube_per_pipeline} / "
+                f"{s.min_publish_interval_minutes} dk ara)"
+            ]
+            for pid in ("tr", "global"):
+                items = db.compute_pipeline_schedule(
+                    pid,
+                    s.max_daily_youtube_per_pipeline,
+                    s.min_publish_interval_minutes,
+                    limit=5,
+                )
+                lines.append(f"\n[{pid.upper()}] ({len(items)} sıradaki klip)")
+                if not items:
+                    lines.append("  Sırada bekleyen klip yok.")
+                for item in items:
+                    dt_str = datetime.fromisoformat(item["scheduled_for"]).astimezone().strftime("%d.%m %H:%M")
+                    lines.append(
+                        f"  #{item['queue_rank']} [{dt_str}] ({item['viral_score']}/10) {item['youtube_title'][:45]}"
+                    )
             await self.send_text("\n".join(lines), chat_id=chat_id)
 
         elif cmd == "/tara" and len(parts) >= 2:

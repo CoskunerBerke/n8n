@@ -238,6 +238,21 @@ async def get_clips(
     status: Optional[str] = None,
     limit: int = 50,
 ) -> list[dict[str, Any]]:
+    if status == "pending_review":
+        s = get_settings()
+        pids = [pipeline_id] if pipeline_id in {"tr", "global"} else ["tr", "global"]
+        combined: list[dict[str, Any]] = []
+        for pid in pids:
+            combined.extend(
+                db.compute_pipeline_schedule(
+                    pid,
+                    s.max_daily_youtube_per_pipeline,
+                    s.min_publish_interval_minutes,
+                    limit=limit,
+                )
+            )
+        combined.sort(key=lambda c: c.get("scheduled_for") or "")
+        return combined[:limit]
     return db.list_clips(pipeline_id=pipeline_id, status=status, limit=limit)
 
 

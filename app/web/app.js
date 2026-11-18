@@ -157,6 +157,16 @@ function renderClips() {
         : `<div class="meta-label">Görsel yok</div>`;
 
       const flag = c.pipeline_id === "tr" ? "🇹🇷 TR" : "🌍 GLOBAL";
+      let scheduleBlock = "";
+      if (c.status === "pending_review" && c.scheduled_for) {
+        const dt = new Date(c.scheduled_for).toLocaleString("tr-TR", {
+          day: "2-digit",
+          month: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+        scheduleBlock = `<div class="meta-label" style="color:#93c5fd;">📅 Sıra #${c.queue_rank || 1} · Planlanan: ${escapeHtml(dt)}</div>`;
+      }
       const reasonBlock =
         c.status === "rejected"
           ? `<div class="meta-label" style="color:#fca5a5;">Eleme Nedeni: ${escapeHtml(c.reject_reason)}</div>`
@@ -179,9 +189,8 @@ function renderClips() {
         c.status === "pending_review"
           ? `
         <div class="clip-actions">
-          <button class="btn btn-primary btn-sm" onclick="publishClip('${c.id}', ['youtube','instagram'])">YT + IG Paylaş</button>
-          <button class="btn btn-outline btn-sm" onclick="publishClip('${c.id}', ['youtube'])">Sadece YT</button>
-          <button class="btn btn-outline btn-sm" onclick="publishClip('${c.id}', ['instagram'])">Sadece IG</button>
+          <button class="btn btn-primary btn-sm" onclick="publishClip('${c.id}', ['youtube'])">Şimdi YT'ye At</button>
+          <button class="btn btn-outline btn-sm" onclick="publishClip('${c.id}', ['youtube','instagram'])">YT + IG</button>
           <button class="btn btn-ghost btn-sm" onclick="regenClip('${c.id}')">Başlık Yenile</button>
           <button class="btn btn-danger btn-sm" onclick="rejectClip('${c.id}')">Reddet</button>
         </div>`
@@ -197,6 +206,7 @@ function renderClips() {
             <span>${flag} · ${escapeHtml(c.streamer_display_name)} (${c.source_platform.toUpperCase()})</span>
             <span>Puan: ${c.viral_score}/10 · ${Math.round(c.duration_sec)}sn</span>
           </div>
+          ${scheduleBlock}
           ${reasonBlock}
           ${editableFields}
           ${actions}

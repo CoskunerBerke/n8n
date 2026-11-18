@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Optional
@@ -68,7 +69,9 @@ class PipelineOrchestrator:
             on_submit_url=lambda pid, url: self.submit_manual_url(pid, url),
         )
         self._locks = {"global": asyncio.Lock(), "tr": asyncio.Lock()}
+        self._youtube_backoff_until: dict[str, float] = {}
         self._scheduler_task: Optional[asyncio.Task[None]] = None
+        self._queue_task: Optional[asyncio.Task[None]] = None
         self._running = False
 
     def start_background_services(self) -> None:
@@ -79,17 +82,78 @@ class PipelineOrchestrator:
             not self._scheduler_task or self._scheduler_task.done()
         ):
             self._scheduler_task = asyncio.create_task(self._scheduler_loop())
+        if not self._queue_task or self._queue_task.done():
+            self._queue_task = asyncio.create_task(self._queue_publisher_loop())
 
     async def stop_background_services(self) -> None:
         self._running = False
-        if self._scheduler_task:
-            self._scheduler_task.cancel()
-            try:
-                await self._scheduler_task
-            except asyncio.CancelledError:
-                pass
+        for task in (self._scheduler_task, self._queue_task):
+            if task:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
         await self.live_watcher.stop()
         await self.telegram.stop()
+
+    async def _queue_publisher_loop(self) -> None:
+        """Drip-publishes highest-rated queued clips on schedule (e.g., 4/day spaced 3.5h apart)."""
+        await asyncio.sleep(20.0)
+        while self._running:
+            settings = get_settings()
+            for pid in ("tr", "global"):
+                try:
+                    pipeline = db.get_pipeline(pid)
+                    if not pipeline or not pipeline.get("autopilot"):
+                        continue
+                    if time.time() < self._youtube_backoff_until.get(pid, 0.0):
+                        continue
+                    pacing = db.get_publish_pacing(pid)
+                    within_cap = pacing["published_last_24h"] < settings.max_daily_youtube_per_pipeline
+                    last_min = pacing["minutes_since_last_publish"]
+                    within_spacing = last_min is None or last_min >= settings.min_publish_interval_minutes
+                    if not (within_cap and within_spacing):
+                        continue
+                    next_clip = db.get_next_queued_clip(pid)
+                    if next_clip and next_clip.get("rendered_path") and Path(next_clip["rendered_path"]).exists():
+                        await self._try_autopublish_clip(next_clip, notify_telegram=True)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.warning("Planlı kuyruk yayın döngüsü hatası (%s): %s", pid, exc)
+            await asyncio.sleep(60.0)
+
+    async def _try_autopublish_clip(self, clip: dict[str, Any], notify_telegram: bool = False) -> bool:
+        pid = clip["pipeline_id"]
+        auto_targets = ["youtube"]
+        if self.instagram_pub.is_configured(pid):
+            auto_targets.append("instagram")
+        try:
+            res = await self.publish_clip(clip["id"], auto_targets)
+            if notify_telegram:
+                yt_id = res.get("youtube") or ""
+                link = f"https://youtube.com/shorts/{yt_id}" if yt_id else (res.get("summary") or "")
+                await self.telegram.send_text(
+                    f"📅 SIRADAKİ KLİP YOUTUBE'A YAYINLANDI!\n[{pid.upper()}] {clip['youtube_title']}\n{link}"
+                )
+            return True
+        except Exception as exc:
+            err_text = str(exc)
+            if "uploadLimitExceeded" in err_text or "quotaExceeded" in err_text:
+                # Keep clip in queue instead of dropping to failed; wait 4h before retry
+                db.update_clip(clip["id"], {"status": "pending_review", "reject_reason": ""})
+                self._youtube_backoff_until[pid] = time.time() + 4 * 3600
+                db.add_log(
+                    "YouTube günlük kanal yükleme sınırı dolu; klip sırada korundu, 4 saat sonra otomatik devam edecek",
+                    pipeline_id=pid,
+                    level="warning",
+                    source="autopilot",
+                )
+            else:
+                logger.warning("Otopilot yayınlama hatası (%s): %s", clip["id"], exc)
+                db.add_log(f"Otopilot yayın hatası: {exc}", pipeline_id=pid, level="warning")
+            return False
 
     async def _scheduler_loop(self) -> None:
         await asyncio.sleep(15.0)
@@ -324,33 +388,41 @@ class PipelineOrchestrator:
             }
         )
 
-        autopilot_done = False
         settings = get_settings()
-        if pipeline.get("autopilot") and verdict.viral_score >= settings.min_viral_score:
-            auto_targets = ["youtube"]
-            if self.instagram_pub.is_configured(pipeline_id):
-                auto_targets.append("instagram")
+        db.enforce_queue_cap(pipeline_id, settings.max_queue_per_pipeline)
+        clip = db.get_clip(clip_id) or clip
+        if clip.get("status") == "rejected":
+            return clip
 
+        autopilot_done = False
+        if pipeline.get("autopilot") and verdict.viral_score >= settings.min_viral_score:
             pacing = db.get_publish_pacing(pipeline_id)
             within_daily_cap = pacing["published_last_24h"] < settings.max_daily_youtube_per_pipeline
             last_min = pacing["minutes_since_last_publish"]
             within_spacing = last_min is None or last_min >= settings.min_publish_interval_minutes
+            not_backed_off = time.time() >= self._youtube_backoff_until.get(pipeline_id, 0.0)
 
-            if within_daily_cap and within_spacing:
-                try:
-                    await self.publish_clip(clip_id, auto_targets)
-                    clip = db.get_clip(clip_id) or clip
-                    autopilot_done = True
-                except Exception as exc:
-                    logger.warning("Otopilot yayınlama hatası (%s): %s", clip_id, exc)
-                    db.add_log(f"Otopilot yayın hatası: {exc}", pipeline_id=pipeline_id, level="warning")
+            if within_daily_cap and within_spacing and not_backed_off:
+                autopilot_done = await self._try_autopublish_clip(clip, notify_telegram=False)
+                clip = db.get_clip(clip_id) or clip
             else:
                 db.add_log(
-                    f"Günlük kota ({pacing['published_last_24h']}/{settings.max_daily_youtube_per_pipeline}) "
-                    "veya 2 saatlik anti-spam aralığı nedeniyle klip Telegram kuyruğuna bırakıldı",
+                    f"Klip yayın sırasına eklendi ({pacing['published_last_24h']}/{settings.max_daily_youtube_per_pipeline} günlük)",
                     pipeline_id=pipeline_id,
                     source="autopilot",
                 )
+
+        if not autopilot_done:
+            scheduled = db.compute_pipeline_schedule(
+                pipeline_id,
+                settings.max_daily_youtube_per_pipeline,
+                settings.min_publish_interval_minutes,
+                limit=settings.max_queue_per_pipeline + 2,
+            )
+            match = next((c for c in scheduled if c["id"] == clip_id), None)
+            if match:
+                clip["queue_rank"] = match["queue_rank"]
+                clip["scheduled_for"] = match["scheduled_for"]
 
         await self.telegram.send_clip_for_approval(clip, autopilot_published=autopilot_done)
         await self._notify_n8n(clip)

@@ -122,7 +122,8 @@ class LiveStreamWatcher:
         session = self._sessions.get(key)
         if not session:
             return
-        if time.time() - session.last_capture_at < 90.0:
+        cooldown = float(get_settings().live_spike_cooldown_seconds)
+        if time.time() - session.last_capture_at < cooldown:
             return
         session.pending_spike_reason = reason
 
@@ -309,12 +310,14 @@ class LiveStreamWatcher:
                                 if len(session.baseline_rms) >= 4
                                 else -36.0
                             )
-                            session.baseline_rms.append(rms)
+                            if rms > -42.0:
+                                session.baseline_rms.append(rms)
+                            cooldown = float(get_settings().live_spike_cooldown_seconds)
                             if (
                                 len(segments) >= 8
                                 and rms > -28.0
                                 and (rms - baseline) >= 6.5
-                                and (time.time() - session.last_capture_at) >= 90.0
+                                and (time.time() - session.last_capture_at) >= cooldown
                             ):
                                 session.pending_spike_reason = (
                                     f"Ses/reaksiyon patlaması ({rms:.1f} dB vs taban {baseline:.1f} dB)"
@@ -335,11 +338,29 @@ class LiveStreamWatcher:
             logger.warning("Ring buffer izleme hatası (%s): %s", key, exc)
 
     async def _export_last_40s_clip(self, session: ActiveStreamSession, reason: str) -> None:
+        settings = get_settings()
+        queued = db.list_clips(
+            pipeline_id=session.pipeline_id,
+            status="pending_review",
+            limit=settings.max_queue_per_pipeline + 2,
+        )
+        if len(queued) >= settings.max_queue_per_pipeline:
+            return
+
         segments = sorted(session.buffer_dir.glob("seg_*.ts"), key=lambda p: p.stat().st_mtime)
         # Exclude the very last segment currently being written
         usable = segments[:-1] if len(segments) > 2 else segments
-        picked = usable[-8:]  # ~40 seconds (8 x 5s)
-        if len(picked) < 4:
+        if len(usable) < 6:
+            return
+
+        end_mtime = usable[-1].stat().st_mtime
+        picked: list[Path] = []
+        for seg in reversed(usable):
+            picked.append(seg)
+            if (end_mtime - seg.stat().st_mtime) >= 36.0 or len(picked) >= 20:
+                break
+        picked.reverse()
+        if len(picked) < 6:
             return
 
         clip_id = f"live_{uuid.uuid4().hex[:10]}"

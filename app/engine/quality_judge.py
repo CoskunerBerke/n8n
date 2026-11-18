@@ -222,6 +222,7 @@ def _analyze_visuals_sync(
     frames: list[tuple[float, np.ndarray]] = []
     grays_small: list[np.ndarray] = []
     faces_detected = 0
+    ad_slate_frames = 0
 
     for ts in timestamps:
         cap.set(cv2.CAP_PROP_POS_MSEC, float(ts) * 1000.0)
@@ -229,6 +230,14 @@ def _analyze_visuals_sync(
         if not ok or frame is None:
             continue
         frames.append((float(ts), frame))
+        small_bgr = cv2.resize(frame, (320, 180))
+        hsv_small = cv2.cvtColor(small_bgr, cv2.COLOR_BGR2HSV)
+        purple_cyan_ratio = float(
+            np.mean((hsv_small[:, :, 0] >= 80) & (hsv_small[:, :, 0] <= 168) & (hsv_small[:, :, 1] >= 70))
+        )
+        if purple_cyan_ratio >= 0.92:
+            ad_slate_frames += 1
+
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         grays_small.append(cv2.resize(gray, (320, 180)))
 
@@ -312,6 +321,7 @@ def _analyze_visuals_sync(
         "gameplay_motion_score": round(gameplay_motion, 2),
         "faces_detected": faces_detected,
         "empty_chair_suspected": empty_chair_suspected,
+        "ad_break_detected": ad_slate_frames >= 2,
         "contact_sheet_path": str(contact_sheet_out),
     }
 
@@ -456,7 +466,8 @@ def _build_ai_prompt(
         f"STRICT REJECTION RULES (set approved=false if ANY applies):\n"
         f"1. Streamer went AFK / bathroom break / empty chair with webcam showing nobody.\n"
         f"2. Boring silent menu/loading/pause/BRB screen with no action or funny/hype reaction.\n"
-        f"3. Completely pointless filler where nothing interesting happens.\n\n"
+        f"3. Completely pointless filler where nothing interesting happens.\n"
+        f"4. Stream shows 'Commercial break in progress' or ad-break placeholder screen.\n\n"
         f"OUTPUT LANGUAGE FOR METADATA: {target_lang}\n"
         f"Return ONLY valid JSON with exact keys:\n"
         f"{{\n"
@@ -624,6 +635,20 @@ class ClipQualityJudge:
                 segments=segments,
                 contact_sheet_path=visual["contact_sheet_path"],
                 reject_reason=f"Sabit ekran / BRB / Duraklatılmış yayın (hareket={motion})",
+            )
+
+        if visual.get("ad_break_detected"):
+            return QualityVerdict(
+                approved=False,
+                duration_sec=duration,
+                non_silent_ratio=round(non_silent_ratio, 3),
+                word_count=word_count,
+                gameplay_motion_score=motion,
+                faces_detected=faces,
+                transcript=transcript,
+                segments=segments,
+                contact_sheet_path=visual["contact_sheet_path"],
+                reject_reason="Twitch reklam arası ekranı (Commercial break) elendi",
             )
 
         if visual["empty_chair_suspected"] or (motion < 4.5 and faces == 0 and word_count < 14):

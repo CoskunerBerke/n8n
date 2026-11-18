@@ -292,7 +292,7 @@ class TwitchChatSpikeMonitor:
         baseline_per_10s = (sum(baseline_items) / 16.5) if baseline_items else 1.5
 
         last_ts = self._last_spike.get(channel, 0.0)
-        if recent_count >= 8 and recent_score >= max(10.0, baseline_per_10s * 3.5) and (now - last_ts) >= 90.0:
+        if recent_count >= 15 and recent_score >= max(18.0, baseline_per_10s * 4.5) and (now - last_ts) >= 900.0:
             self._last_spike[channel] = now
             reason = f"Twitch chat patlaması ({recent_count} mesaj/10sn, taban={baseline_per_10s:.1f})"
             logger.info("[%s] %s", channel, reason)
