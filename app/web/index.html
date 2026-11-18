@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#09090b" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="manifest" href="/manifest.json" />
+  <title>GTA 6 Clipper Studio — TR & Global Otomasyon</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <!-- Üst Menü (Tek Satır, Taşma Sıfır) -->
+  <header class="navbar">
+    <div class="navbar-inner">
+      <a href="#overview" class="brand shrink-0">
+        <span class="brand-mark">VI</span>
+        <span class="brand-title">CLIPPER STUDIO</span>
+      </a>
+
+      <nav class="nav-links" aria-label="Ana Menü">
+        <a href="#overview" class="nav-link">Genel</a>
+        <a href="#streamers" class="nav-link">Yayıncılar</a>
+        <a href="#queue" class="nav-link">Klipler</a>
+        <a href="#setup" class="nav-link">Kurulum</a>
+      </nav>
+
+      <div class="nav-actions shrink-0">
+        <button id="btn-scan-tr" class="btn btn-outline" type="button">TR Tara</button>
+        <button id="btn-scan-global" class="btn btn-primary" type="button">Global Tara</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Bildirim Çubuğu -->
+    <div id="toast" class="toast hidden" role="status"></div>
+
+    <!-- 01. Genel Bakış & Canlı Yayınlar -->
+    <section id="overview" class="section">
+      <div class="section-head">
+        <div>
+          <span class="section-index">01</span>
+          <h1>Çift Kanallı GTA 6 Otomasyon Merkezi</h1>
+          <p class="section-sub">Kick, Twitch ve YouTube canlı yayınlarından ve trend kliplerden otomatik 9:16 içerik üretimi.</p>
+        </div>
+        <div class="mobile-url-box">
+          <span class="meta-label">TELEFON ERİŞİM ADRESİ</span>
+          <code id="mobile-url-text">http://localhost:8000</code>
+        </div>
+      </div>
+
+      <!-- İki Ayrı Kanal Hattı Kartları -->
+      <div id="pipeline-cards" class="grid-2"></div>
+
+      <!-- Anlık Linkten Klip Üret -->
+      <div class="panel quick-clip-panel">
+        <div class="panel-head">
+          <h2>Linkten Anında 9:16 Klip Üret</h2>
+          <span class="meta-label">Kick / Twitch / YouTube URL</span>
+        </div>
+        <form id="manual-url-form" class="quick-form">
+          <select id="manual-pipeline" class="input select-sm">
+            <option value="tr">🇹🇷 Türkçe Kanal (YT + IG)</option>
+            <option value="global">🌍 Global Kanal (YT + IG)</option>
+          </select>
+          <input id="manual-url" class="input flex-1" type="url" placeholder="https://kick.com/.../clips/... veya Twitch/YouTube linki yapıştırın" required />
+          <input id="manual-start" class="input input-num" type="number" min="0" step="1" placeholder="Başlangıç (sn)" />
+          <input id="manual-end" class="input input-num" type="number" min="0" step="1" placeholder="Bitiş (sn)" />
+          <button class="btn btn-primary shrink-0" type="submit">Kes & Hazırla</button>
+        </form>
+      </div>
+
+      <!-- Aktif Canlı Yayın İzleyicileri & Son Loglar -->
+      <div class="grid-2">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Canlı Yayın Dinleyicileri</h2>
+            <span id="live-count-label" class="meta-label">0 aktif</span>
+          </div>
+          <div id="live-sessions-list" class="simple-list"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Sistem Akış Kaydı</h2>
+            <button id="btn-refresh-all" class="btn btn-ghost btn-sm" type="button">Yenile</button>
+          </div>
+          <div id="activity-logs" class="log-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02. Yayıncılar -->
+    <section id="streamers" class="section">
+      <div class="section-head">
+        <div>
+          <span class="section-index">02</span>
+          <h2>Takip Edilen Yayıncılar</h2>
+          <p class="section-sub">Her yayıncı hem canlı yayın reaksiyonları hem de geçmiş klipler için izlenir.</p>
+        </div>
+        <div class="tab-group">
+          <button class="tab-btn active" data-streamer-filter="all" type="button">Tümü</button>
+          <button class="tab-btn" data-streamer-filter="tr" type="button">🇹🇷 Türkçe</button>
+          <button class="tab-btn" data-streamer-filter="global" type="button">🌍 Global</button>
+        </div>
+      </div>
+
+      <form id="add-streamer-form" class="panel quick-form">
+        <select id="new-streamer-pipeline" class="input select-sm">
+          <option value="tr">🇹🇷 Türkçe</option>
+          <option value="global">🌍 Global</option>
+        </select>
+        <select id="new-streamer-platform" class="input select-sm">
+          <option value="kick">Kick</option>
+          <option value="twitch">Twitch</option>
+          <option value="youtube">YouTube</option>
+        </select>
+        <input id="new-streamer-username" class="input flex-1" type="text" placeholder="Kullanıcı adı (ör. rraenee, kaicenat)" required />
+        <input id="new-streamer-display" class="input flex-1" type="text" placeholder="Görünen Ad (opsiyonel)" />
+        <button class="btn btn-primary shrink-0" type="submit">Yayıncı Ekle</button>
+      </form>
+
+      <div id="streamers-grid" class="grid-3"></div>
+    </section>
+
+    <!-- 03. Klip Kuyruğu & 9:16 Önizleme -->
+    <section id="queue" class="section">
+      <div class="section-head">
+        <div>
+          <span class="section-index">03</span>
+          <h2>Klip Kuyruğu ve Kalite Kontrolü</h2>
+          <p class="section-sub">Sessiz, boş koltuk (AFK) ve duraklatılmış klipler otomatik elenir. Onaylananları tek tıkla yayınlayın.</p>
+        </div>
+        <div class="tab-group">
+          <button class="tab-btn active" data-clip-status="pending_review" type="button">Onay Bekleyen</button>
+          <button class="tab-btn" data-clip-status="published" type="button">Yayınlanan</button>
+          <button class="tab-btn" data-clip-status="rejected" type="button">Elenen / AFK</button>
+        </div>
+      </div>
+
+      <div id="clips-grid" class="clips-grid"></div>
+    </section>
+
+    <!-- 04. Kurulum Sihirbazı & Hesap Bağlantıları -->
+    <section id="setup" class="section">
+      <div class="section-head">
+        <div>
+          <span class="section-index">04</span>
+          <h2>Kurulum Sihirbazı ve Hesaplar</h2>
+          <p class="section-sub">API anahtarlarınızı, Telegram botunu, TR & Global YouTube ve Instagram hesaplarınızı buradan bağlayın.</p>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <!-- YouTube & Instagram Bağlantı Kartı -->
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Kanal Hesap Bağlantıları</h2>
+          </div>
+          <div class="account-rows">
+            <div class="account-row">
+              <div>
+                <strong>🇹🇷 Türkçe YouTube Kanalı</strong>
+                <div id="yt-tr-status" class="meta-label">Kontrol ediliyor...</div>
+              </div>
+              <button id="btn-connect-yt-tr" class="btn btn-outline btn-sm" type="button">YouTube Bağla</button>
+            </div>
+            <div class="account-row">
+              <div>
+                <strong>🌍 Global YouTube Kanalı</strong>
+                <div id="yt-global-status" class="meta-label">Kontrol ediliyor...</div>
+              </div>
+              <button id="btn-connect-yt-global" class="btn btn-outline btn-sm" type="button">YouTube Bağla</button>
+            </div>
+            <div class="account-row">
+              <div>
+                <strong>Google OAuth JSON (`youtube_client_secret.json`)</strong>
+                <div id="yt-secret-status" class="meta-label">Yüklenmedi</div>
+              </div>
+              <label class="btn btn-ghost btn-sm upload-btn">
+                JSON Yükle
+                <input id="yt-secret-file" type="file" accept=".json" hidden />
+              </label>
+            </div>
+          </div>
+
+          <hr class="divider" />
+          <div class="n8n-box">
+            <strong>n8n Otomasyon Paneli</strong>
+            <p class="section-sub">n8n açıldığında `n8n/workflows/` klasöründeki 3 hazır JSON akışını içe aktarın.</p>
+            <a href="http://localhost:5678" target="_blank" rel="noopener" class="btn btn-outline btn-sm">n8n Panelini Aç (:5678)</a>
+          </div>
+        </div>
+
+        <!-- API Anahtarları Formu -->
+        <form id="settings-form" class="panel form-grid">
+          <div class="panel-head">
+            <h2>API Anahtarları ve Telegram</h2>
+          </div>
+          <label class="field">
+            <span>Gemini API Anahtarı (AI Başlık + AFK Kontrolü)</span>
+            <input name="gemini_api_key" class="input" type="password" autocomplete="off" placeholder="AIza..." />
+          </label>
+          <label class="field">
+            <span>Telegram Bot Token (@BotFather)</span>
+            <input name="telegram_bot_token" class="input" type="password" autocomplete="off" placeholder="123456:ABC..." />
+          </label>
+          <label class="field">
+            <span>Telegram Admin Chat ID</span>
+            <input name="telegram_admin_chat_id" class="input" type="text" placeholder="Ör: 123456789" />
+          </label>
+          <div class="grid-2-tight">
+            <label class="field">
+              <span>Twitch Client ID</span>
+              <input name="twitch_client_id" class="input" type="text" />
+            </label>
+            <label class="field">
+              <span>Twitch Client Secret</span>
+              <input name="twitch_client_secret" class="input" type="password" autocomplete="off" />
+            </label>
+          </div>
+          <div class="grid-2-tight">
+            <label class="field">
+              <span>Kick Client ID</span>
+              <input name="kick_client_id" class="input" type="text" />
+            </label>
+            <label class="field">
+              <span>Kick Client Secret</span>
+              <input name="kick_client_secret" class="input" type="password" autocomplete="off" />
+            </label>
+          </div>
+          <div class="grid-2-tight">
+            <label class="field">
+              <span>🇹🇷 TR Instagram User ID</span>
+              <input name="instagram_tr_user_id" class="input" type="text" />
+            </label>
+            <label class="field">
+              <span>🇹🇷 TR Instagram Access Token</span>
+              <input name="instagram_tr_access_token" class="input" type="password" autocomplete="off" />
+            </label>
+          </div>
+          <div class="grid-2-tight">
+            <label class="field">
+              <span>🌍 Global Instagram User ID</span>
+              <input name="instagram_global_user_id" class="input" type="text" />
+            </label>
+            <label class="field">
+              <span>🌍 Global Instagram Access Token</span>
+              <input name="instagram_global_access_token" class="input" type="password" autocomplete="off" />
+            </label>
+          </div>
+          <label class="field">
+            <span>Public Base URL (Cloudflare Tunnel veya Sunucu Domaini)</span>
+            <input name="public_base_url" class="input" type="url" placeholder="https://xxxx.trycloudflare.com" />
+          </label>
+          <label class="checkbox-row">
+            <input name="temp_public_upload_enabled" type="checkbox" />
+            <span>Public URL yoksa Instagram Reels için geçici dosya paylaşımı kullan</span>
+          </label>
+          <button class="btn btn-primary" type="submit">Ayarları Kaydet</button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <!-- Mobil Alt Hızlı Çubuk -->
+  <nav class="mobile-quick-bar" aria-label="Mobil Hızlı Menü">
+    <a href="#overview" class="mq-item">Genel</a>
+    <a href="#streamers" class="mq-item">Yayıncılar</a>
+    <a href="#queue" class="mq-item">Klipler</a>
+    <a href="#setup" class="mq-item">Kurulum</a>
+  </nav>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,117 @@
+{
+  "name": "01 - GTA 6 Global (EN) Auto-Clipper",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      },
+      "id": "node-schedule-global",
+      "name": "Her 10 Dakikada Tara",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.CLIPPER_API_URL || 'http://localhost:8000') + '/api/pipelines/global/run-cycle?max_new=3' }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "node-http-run-global",
+      "name": "Global Clipper Tarama & Kalite Kapisi",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.approved || 0 }}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      },
+      "id": "node-if-approved-global",
+      "name": "Onaylanan Klip Var mi?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [760, 300]
+    },
+    {
+      "parameters": {},
+      "id": "node-done-global",
+      "name": "Telegram Onay & YT/IG Kuyrugu Hazir",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1040, 220]
+    },
+    {
+      "parameters": {},
+      "id": "node-skip-global",
+      "name": "Yeni Kaliteli Klip Yok",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1040, 380]
+    }
+  ],
+  "connections": {
+    "Her 10 Dakikada Tara": {
+      "main": [
+        [
+          {
+            "node": "Global Clipper Tarama & Kalite Kapisi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Global Clipper Tarama & Kalite Kapisi": {
+      "main": [
+        [
+          {
+            "node": "Onaylanan Klip Var mi?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Onaylanan Klip Var mi?": {
+      "main": [
+        [
+          {
+            "node": "Telegram Onay & YT/IG Kuyrugu Hazir",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Yeni Kaliteli Klip Yok",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "gta6-global-v1"
+}

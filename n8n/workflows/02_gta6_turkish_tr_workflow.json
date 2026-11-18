@@ -1,0 +1,117 @@
+{
+  "name": "02 - GTA 6 Turkiye (TR) Auto-Clipper",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      },
+      "id": "node-schedule-tr",
+      "name": "Her 10 Dakikada Tara (TR)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.CLIPPER_API_URL || 'http://localhost:8000') + '/api/pipelines/tr/run-cycle?max_new=3' }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "node-http-run-tr",
+      "name": "TR Clipper Tarama & Kalite Kapisi",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.approved || 0 }}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      },
+      "id": "node-if-approved-tr",
+      "name": "Onaylanan TR Klip Var mi?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [760, 300]
+    },
+    {
+      "parameters": {},
+      "id": "node-done-tr",
+      "name": "Telegram Onay & TR YT/IG Kuyrugu Hazir",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1040, 220]
+    },
+    {
+      "parameters": {},
+      "id": "node-skip-tr",
+      "name": "Yeni Kaliteli TR Klip Yok",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1040, 380]
+    }
+  ],
+  "connections": {
+    "Her 10 Dakikada Tara (TR)": {
+      "main": [
+        [
+          {
+            "node": "TR Clipper Tarama & Kalite Kapisi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TR Clipper Tarama & Kalite Kapisi": {
+      "main": [
+        [
+          {
+            "node": "Onaylanan TR Klip Var mi?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Onaylanan TR Klip Var mi?": {
+      "main": [
+        [
+          {
+            "node": "Telegram Onay & TR YT/IG Kuyrugu Hazir",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Yeni Kaliteli TR Klip Yok",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "gta6-tr-v1"
+}

@@ -1,0 +1,87 @@
+{
+  "name": "03 - Canli Yayin & Anlik Klip Webhook Yonlendirici",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gta6-clip-ready",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "node-webhook-in",
+      "name": "Clipper Engine Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.body.clip.pipeline_id }}",
+              "value2": "tr"
+            }
+          ]
+        }
+      },
+      "id": "node-route-lang",
+      "name": "TR mi Global mi?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [520, 300]
+    },
+    {
+      "parameters": {},
+      "id": "node-tr-branch",
+      "name": "TR Kanal Bildirimi / Ozel Akis",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [800, 220]
+    },
+    {
+      "parameters": {},
+      "id": "node-global-branch",
+      "name": "Global Kanal Bildirimi / Ozel Akis",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [800, 380]
+    }
+  ],
+  "connections": {
+    "Clipper Engine Webhook": {
+      "main": [
+        [
+          {
+            "node": "TR mi Global mi?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TR mi Global mi?": {
+      "main": [
+        [
+          {
+            "node": "TR Kanal Bildirimi / Ozel Akis",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Global Kanal Bildirimi / Ozel Akis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "gta6-webhook-v1"
+}

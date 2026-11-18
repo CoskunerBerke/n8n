@@ -1,0 +1,44 @@
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+credentials/*.json
+!credentials/.gitkeep
+
+# Python Virtual Environments & Cache
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.egg-info/
+
+# Runtime Data & Media
+data/
+*.mp4
+*.mkv
+*.mov
+*.ts
+*.mp3
+*.wav
+*.ass
+*.srt
+*.jpg
+*.jpeg
+*.png
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# Node / n8n local artifacts
+node_modules/
+.n8n/
+
+# OS & IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

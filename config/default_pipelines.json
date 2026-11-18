@@ -1,0 +1,172 @@
+{
+  "pipelines": [
+    {
+      "id": "global",
+      "name": "Global GTA 6 Clips (EN)",
+      "language": "en",
+      "autopilot": false,
+      "live_enabled": true,
+      "clips_enabled": true,
+      "game_keywords": [
+        "Grand Theft Auto VI",
+        "GTA VI",
+        "GTA 6",
+        "Grand Theft Auto"
+      ],
+      "streamers": [
+        {
+          "username": "ishowspeed",
+          "display_name": "IShowSpeed",
+          "platform": "youtube",
+          "channel_url": "https://www.youtube.com/@IShowSpeed/live",
+          "live_watch": true,
+          "clip_scan": true
+        },
+        {
+          "username": "ishowspeed",
+          "display_name": "IShowSpeed",
+          "platform": "twitch",
+          "channel_url": "https://www.twitch.tv/ishowspeed",
+          "live_watch": true,
+          "clip_scan": true
+        },
+        {
+          "username": "kaicenat",
+          "display_name": "Kai Cenat",
+          "platform": "twitch",
+          "channel_url": "https://www.twitch.tv/kaicenat",
+          "live_watch": true,
+          "clip_scan": true
+        },
+        {
+          "username": "xqc",
+          "display_name": "xQc",
+          "platform": "kick",
+          "channel_url": "https://kick.com/xqc",
+          "live_watch": true,
+          "clip_scan": true
+        },
+        {
+          "username": "xqc",
+          "display_name": "xQc",
+          "platform": "twitch",
+          "channel_url": "https://www.twitch.tv/xqc",
+          "live_watch": true,
+          "clip_scan": true
+        },
+        {
+          "username": "adinross",
+          "display_name": "Adin Ross",
+          "platform": "kick",
+          "channel_url": "https://kick.com/adinross",
+          "live_watch": true,
+          "clip_scan": true
+        },
+        {
+          "username": "stableronaldo",
+          "display_name": "Stable Ronaldo",
+          "platform": "twitch",
+          "channel_url": "https://www.twitch.tv/stableronaldo",
+          "live_watch": true,
+          "clip_scan": true
+        },
+        {
+          "username": "caseoh_",
+          "display_name": "CaseOh",
+          "platform": "twitch",
+          "channel_url": "https://www.twitch.tv/caseoh_",
+          "live_watch": true,
+          "clip_scan": true
+        }
+      ]
+    },
+    {
+      "id": "tr",
+      "name": "Türkiye GTA 6 Kesitleri (TR)",
+      "language": "tr",
+      "autopilot": false,
+      "live_enabled": true,
+      "clips_enabled": true,
+      "game_keywords": [
+        "Grand Theft Auto VI",
+        "GTA VI",
+        "GTA 6",
+        "Grand Theft Auto"
+      ],
+      "streamers": [
+        {
+          "username": "rraenee",
+          "display_name": "RRaenee (Rane)",
+          "platform": "kick",
+          "channel_url": "https://kick.com/rraenee",
+          "live_watch": true,
+          "clip_scan": true
+        },
+        {
+          "username": "rraenee",
+          "display_name": "RRaenee (Rane)",
+          "platform": "twitch",
+          "channel_url": "https://www.twitch.tv/rraenee",
+          "live_watch": true,
+          "clip_scan": true
+        },
+        {
+          "username": "elraenn",
+          "display_name": "Elraenn",
+          "platform": "twitch",
+          "channel_url": "https://www.twitch.tv/elraenn",
+          "live_watch": true,
+          "clip_scan": true
+        },
+        {
+          "username": "elraenn",
+          "display_name": "Elraenn",
+          "platform": "kick",
+          "channel_url": "https://kick.com/elraenn",
+          "live_watch": true,
+          "clip_scan": true
+        },
+        {
+          "username": "jahrein",
+          "display_name": "Jahrein",
+          "platform": "kick",
+          "channel_url": "https://kick.com/jahrein",
+          "live_watch": true,
+          "clip_scan": true
+        },
+        {
+          "username": "wtcn",
+          "display_name": "wtcN",
+          "platform": "kick",
+          "channel_url": "https://kick.com/wtcn",
+          "live_watch": true,
+          "clip_scan": true
+        },
+        {
+          "username": "wtcn",
+          "display_name": "wtcN",
+          "platform": "twitch",
+          "channel_url": "https://www.twitch.tv/wtcn",
+          "live_watch": true,
+          "clip_scan": true
+        },
+        {
+          "username": "mithrain",
+          "display_name": "Mithrain",
+          "platform": "kick",
+          "channel_url": "https://kick.com/mithrain",
+          "live_watch": true,
+          "clip_scan": true
+        },
+        {
+          "username": "mithrain",
+          "display_name": "Mithrain",
+          "platform": "twitch",
+          "channel_url": "https://www.twitch.tv/mithrain",
+          "live_watch": true,
+          "clip_scan": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+services:
+  clipper:
+    build: .
+    container_name: gta6-clipper-engine
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./credentials:/app/credentials
+      - ./config:/app/config
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: gta6-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - GENERIC_TIMEZONE=Europe/Istanbul
+      - CLIPPER_API_URL=http://clipper:8000
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/workflows:/workflows
+    depends_on:
+      - clipper
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: gta6-mobile-tunnel
+    profiles: ["mobile"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://clipper:8000
+    depends_on:
+      - clipper
+
+volumes:
+  n8n_data:
