@@ -325,14 +325,32 @@ class PipelineOrchestrator:
         )
 
         autopilot_done = False
-        if pipeline.get("autopilot") and verdict.viral_score >= get_settings().min_viral_score:
-            try:
-                await self.publish_clip(clip_id, ["youtube", "instagram"])
-                clip = db.get_clip(clip_id) or clip
-                autopilot_done = True
-            except Exception as exc:
-                logger.warning("Otopilot yayınlama hatası (%s): %s", clip_id, exc)
-                db.add_log(f"Otopilot yayın hatası: {exc}", pipeline_id=pipeline_id, level="warning")
+        settings = get_settings()
+        if pipeline.get("autopilot") and verdict.viral_score >= settings.min_viral_score:
+            auto_targets = ["youtube"]
+            if self.instagram_pub.is_configured(pipeline_id):
+                auto_targets.append("instagram")
+
+            pacing = db.get_publish_pacing(pipeline_id)
+            within_daily_cap = pacing["published_last_24h"] < settings.max_daily_youtube_per_pipeline
+            last_min = pacing["minutes_since_last_publish"]
+            within_spacing = last_min is None or last_min >= settings.min_publish_interval_minutes
+
+            if within_daily_cap and within_spacing:
+                try:
+                    await self.publish_clip(clip_id, auto_targets)
+                    clip = db.get_clip(clip_id) or clip
+                    autopilot_done = True
+                except Exception as exc:
+                    logger.warning("Otopilot yayınlama hatası (%s): %s", clip_id, exc)
+                    db.add_log(f"Otopilot yayın hatası: {exc}", pipeline_id=pipeline_id, level="warning")
+            else:
+                db.add_log(
+                    f"Günlük kota ({pacing['published_last_24h']}/{settings.max_daily_youtube_per_pipeline}) "
+                    "veya 2 saatlik anti-spam aralığı nedeniyle klip Telegram kuyruğuna bırakıldı",
+                    pipeline_id=pipeline_id,
+                    source="autopilot",
+                )
 
         await self.telegram.send_clip_for_approval(clip, autopilot_published=autopilot_done)
         await self._notify_n8n(clip)

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator, Optional
 
@@ -573,4 +573,35 @@ def get_dashboard_stats() -> dict[str, Any]:
         "pipelines": pipelines,
         "pipeline_stats": stats,
         "enabled_streamers": total_streamers,
+    }
+
+
+def get_publish_pacing(pipeline_id: str) -> dict[str, Any]:
+    """Return 24h YouTube publish count and minutes elapsed since last publish."""
+    now = datetime.now(timezone.utc)
+    cutoff_iso = (now - timedelta(hours=24)).isoformat()
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT updated_at FROM clips
+            WHERE pipeline_id = ?
+              AND status = 'published'
+              AND youtube_video_id != ''
+              AND updated_at >= ?
+            ORDER BY updated_at DESC
+            """,
+            (pipeline_id, cutoff_iso),
+        ).fetchall()
+
+    minutes_since_last: Optional[float] = None
+    if rows:
+        try:
+            last_dt = datetime.fromisoformat(str(rows[0]["updated_at"]).replace("Z", "+00:00"))
+            minutes_since_last = max(0.0, (now - last_dt).total_seconds() / 60.0)
+        except ValueError:
+            minutes_since_last = None
+
+    return {
+        "published_last_24h": len(rows),
+        "minutes_since_last_publish": minutes_since_last,
     }

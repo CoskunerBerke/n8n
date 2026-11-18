@@ -90,24 +90,43 @@ class TelegramBotService:
 
         rendered = Path(clip.get("rendered_path") or "")
         caption = self._format_clip_caption(clip)
+        ig_configured = (
+            bool(s.instagram_tr_user_id.strip() and s.instagram_tr_access_token.strip())
+            if clip["pipeline_id"] == "tr"
+            else bool(s.instagram_global_user_id.strip() and s.instagram_global_access_token.strip())
+        )
         if autopilot_published:
-            caption = f"🚀 OTOPİLOT YAYINLANDI!\n\n{caption}"[:1010]
+            caption = (
+                f"🚀 YOUTUBE SHORTS OTOPİLOTLA YAYINLANDI!\n"
+                f"📱 Instagram için videoyu kaydedip aşağıdaki açıklamayı kopyalayabilirsin.\n\n{caption}"
+            )[:1010]
             keyboard = {"inline_keyboard": []}
         else:
             cid = clip["id"]
-            keyboard = {
-                "inline_keyboard": [
-                    [{"text": "✅ YT + IG Paylaş", "callback_data": f"pub_both:{cid}"}],
-                    [
-                        {"text": "▶️ Sadece YT", "callback_data": f"pub_yt:{cid}"},
-                        {"text": "📸 Sadece IG", "callback_data": f"pub_ig:{cid}"},
-                    ],
-                    [
-                        {"text": "🔄 Başlık Yenile", "callback_data": f"regen:{cid}"},
-                        {"text": "❌ Reddet", "callback_data": f"reject:{cid}"},
-                    ],
-                ]
-            }
+            if ig_configured:
+                keyboard = {
+                    "inline_keyboard": [
+                        [{"text": "✅ YT + IG Paylaş", "callback_data": f"pub_both:{cid}"}],
+                        [
+                            {"text": "▶️ Sadece YT", "callback_data": f"pub_yt:{cid}"},
+                            {"text": "📸 Sadece IG", "callback_data": f"pub_ig:{cid}"},
+                        ],
+                        [
+                            {"text": "🔄 Başlık Yenile", "callback_data": f"regen:{cid}"},
+                            {"text": "❌ Reddet", "callback_data": f"reject:{cid}"},
+                        ],
+                    ]
+                }
+            else:
+                keyboard = {
+                    "inline_keyboard": [
+                        [{"text": "▶️ YouTube'a Yayınla", "callback_data": f"pub_yt:{cid}"}],
+                        [
+                            {"text": "🔄 Başlık Yenile", "callback_data": f"regen:{cid}"},
+                            {"text": "❌ Reddet", "callback_data": f"reject:{cid}"},
+                        ],
+                    ]
+                }
 
         async with httpx.AsyncClient(timeout=90.0) as client:
             if rendered.exists():

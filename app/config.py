@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     clip_max_seconds: int = 45
     min_speech_words: int = 8
     min_non_silent_ratio: float = 0.25
+    max_daily_youtube_per_pipeline: int = 3
+    min_publish_interval_minutes: int = 120
 
     twitch_client_id: str = ""
     twitch_client_secret: str = ""

@@ -214,3 +214,28 @@ def test_n8n_workflows_valid_json() -> None:
         data = json.loads(wf_file.read_text(encoding="utf-8"))
         assert isinstance(data.get("nodes"), list) and len(data["nodes"]) > 0
         assert isinstance(data.get("connections"), dict)
+
+
+def test_youtube_publish_pacing(isolated_env: Path) -> None:
+    initial = db.get_publish_pacing("tr")
+    assert initial["published_last_24h"] == 0
+    assert initial["minutes_since_last_publish"] is None
+
+    db.insert_clip(
+        {
+            "id": "pace_test_1",
+            "pipeline_id": "tr",
+            "streamer_username": "rraenee",
+            "streamer_display_name": "RRaenee",
+            "source_platform": "kick",
+            "source_type": "trending_clip",
+            "source_id": "pace_src_1",
+            "source_url": "https://kick.com/rraenee/clips/pace_src_1",
+            "status": "published",
+            "youtube_video_id": "yt_abc123",
+        }
+    )
+    after = db.get_publish_pacing("tr")
+    assert after["published_last_24h"] == 1
+    assert after["minutes_since_last_publish"] is not None
+    assert after["minutes_since_last_publish"] < 1.0
