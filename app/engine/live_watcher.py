@@ -12,6 +12,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 from app import database as db
 from app.config import get_settings
+from app.engine.game_filter import is_gta6_match
 from app.sources import ytdlp_helper
 from app.sources.kick_client import KickClient
 from app.sources.twitch_client import TwitchChatSpikeMonitor, TwitchClient
@@ -165,6 +166,7 @@ class LiveStreamWatcher:
             key = (platform, uname)
             is_live = False
             live_title = ""
+            game_name = ""
             stream_url = ""
 
             if platform == "twitch" and self.twitch.is_configured():
@@ -172,11 +174,13 @@ class LiveStreamWatcher:
                 if info and info.get("is_live"):
                     is_live = True
                     live_title = info.get("title", "")
+                    game_name = info.get("game_name", "")
             elif platform == "kick" and self.kick.is_configured():
                 info = kick_live.get(uname)
                 if info and info.get("is_live"):
                     is_live = True
                     live_title = info.get("title", "")
+                    game_name = info.get("game_name", "")
             else:
                 # Direct yt-dlp probe for YouTube or unauthenticated Kick/Twitch channels
                 if len(self._sessions) < settings.max_concurrent_live_streams or key in self._sessions:
@@ -184,7 +188,26 @@ class LiveStreamWatcher:
                     if resolved and resolved.get("is_live"):
                         is_live = True
                         live_title = resolved.get("title", "")
+                        game_name = resolved.get("category", "")
                         stream_url = resolved.get("stream_url", "")
+
+            if is_live and settings.strict_gta6_only:
+                keywords = pipelines.get(st["pipeline_id"], {}).get("game_keywords", [])
+                if not is_gta6_match(
+                    game_name,
+                    live_title,
+                    keywords,
+                    allow_unknown_category=(platform == "youtube"),
+                ):
+                    logger.debug(
+                        "Canlı yayın GTA 6 olmadığı için atlandı: %s (%s) -> kategori=%s, başlık=%s",
+                        uname,
+                        platform,
+                        game_name,
+                        live_title,
+                    )
+                    is_live = False
+                    stream_url = ""
 
             db.update_streamer(
                 st["id"],

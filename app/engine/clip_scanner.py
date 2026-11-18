@@ -4,6 +4,8 @@ import logging
 from typing import Any
 
 from app import database as db
+from app.config import get_settings
+from app.engine.game_filter import is_gta6_match
 from app.sources import ytdlp_helper
 from app.sources.twitch_client import TwitchClient
 from app.sources.youtube_source import YouTubeSourceClient
@@ -40,6 +42,7 @@ class ClipScanner:
             return []
 
         keywords = pipeline.get("game_keywords", [])
+        strict_gta6 = get_settings().strict_gta6_only
         raw_candidates: list[dict[str, Any]] = []
         streamer_map = {(s["platform"], s["username"]): s for s in streamers}
 
@@ -53,6 +56,9 @@ class ClipScanner:
                 )
                 twitch_via_api = True
                 for item in api_clips:
+                    cat = str(item.get("category") or "")
+                    if strict_gta6 and not is_gta6_match(cat, item["title"], keywords, allow_unknown_category=False):
+                        continue
                     st = streamer_map.get(("twitch", item["username"]), {})
                     raw_candidates.append(
                         {
@@ -90,6 +96,14 @@ class ClipScanner:
                         continue
                     views = int(item.get("views_count") or 0)
                     title = str(item.get("title") or "")
+                    cat = str(item.get("category") or "")
+                    if strict_gta6 and not is_gta6_match(
+                        cat,
+                        title,
+                        keywords,
+                        allow_unknown_category=(platform == "youtube"),
+                    ):
+                        continue
                     raw_candidates.append(
                         {
                             "pipeline_id": pipeline_id,

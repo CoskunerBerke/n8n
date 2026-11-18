@@ -5,6 +5,7 @@ import logging
 import re
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -67,6 +68,8 @@ class PipelineOrchestrator:
             on_regen=self.regenerate_clip_metadata,
             on_scan=self.run_pipeline_cycle,
             on_submit_url=lambda pid, url: self.submit_manual_url(pid, url),
+            on_schedule_batch=self.schedule_queued_to_youtube,
+            on_vault_telegram=self.push_queue_to_telegram_vault,
         )
         self._locks = {"global": asyncio.Lock(), "tr": asyncio.Lock()}
         self._youtube_backoff_until: dict[str, float] = {}
@@ -98,7 +101,7 @@ class PipelineOrchestrator:
         await self.telegram.stop()
 
     async def _queue_publisher_loop(self) -> None:
-        """Drip-publishes highest-rated queued clips on schedule (e.g., 4/day spaced 3.5h apart)."""
+        """Drip-publishes or pre-schedules queued clips on YouTube Studio (4/day, 3.5h spacing)."""
         await asyncio.sleep(20.0)
         while self._running:
             settings = get_settings()
@@ -109,6 +112,24 @@ class PipelineOrchestrator:
                         continue
                     if time.time() < self._youtube_backoff_until.get(pid, 0.0):
                         continue
+
+                    if settings.youtube_schedule_ahead:
+                        scheduled = db.compute_pipeline_schedule(
+                            pid,
+                            settings.max_daily_youtube_per_pipeline,
+                            settings.min_publish_interval_minutes,
+                            limit=1,
+                        )
+                        if scheduled:
+                            next_clip = scheduled[0]
+                            if next_clip.get("rendered_path") and Path(next_clip["rendered_path"]).exists():
+                                await self._try_autopublish_clip(
+                                    next_clip,
+                                    notify_telegram=True,
+                                    publish_at_iso=next_clip.get("scheduled_for"),
+                                )
+                        continue
+
                     pacing = db.get_publish_pacing(pid)
                     within_cap = pacing["published_last_24h"] < settings.max_daily_youtube_per_pipeline
                     last_min = pacing["minutes_since_last_publish"]
@@ -124,18 +145,30 @@ class PipelineOrchestrator:
                     logger.warning("Planlı kuyruk yayın döngüsü hatası (%s): %s", pid, exc)
             await asyncio.sleep(60.0)
 
-    async def _try_autopublish_clip(self, clip: dict[str, Any], notify_telegram: bool = False) -> bool:
+    async def _try_autopublish_clip(
+        self,
+        clip: dict[str, Any],
+        notify_telegram: bool = False,
+        publish_at_iso: Optional[str] = None,
+    ) -> bool:
         pid = clip["pipeline_id"]
         auto_targets = ["youtube"]
         if self.instagram_pub.is_configured(pid):
             auto_targets.append("instagram")
         try:
-            res = await self.publish_clip(clip["id"], auto_targets)
+            res = await self.publish_clip(clip["id"], auto_targets, publish_at_iso=publish_at_iso)
             if notify_telegram:
                 yt_id = res.get("youtube") or ""
                 link = f"https://youtube.com/shorts/{yt_id}" if yt_id else (res.get("summary") or "")
+                sched_label = ""
+                if publish_at_iso:
+                    try:
+                        local_dt = datetime.fromisoformat(publish_at_iso.replace("Z", "+00:00")).astimezone()
+                        sched_label = f" (Planlandı: {local_dt.strftime('%d.%m %H:%M')})"
+                    except ValueError:
+                        pass
                 await self.telegram.send_text(
-                    f"📅 SIRADAKİ KLİP YOUTUBE'A YAYINLANDI!\n[{pid.upper()}] {clip['youtube_title']}\n{link}"
+                    f"📅 YOUTUBE STUDIO'YA PLANLANDI!{sched_label}\n[{pid.upper()}] {clip['youtube_title']}\n{link}"
                 )
             return True
         except Exception as exc:
@@ -154,6 +187,66 @@ class PipelineOrchestrator:
                 logger.warning("Otopilot yayınlama hatası (%s): %s", clip["id"], exc)
                 db.add_log(f"Otopilot yayın hatası: {exc}", pipeline_id=pid, level="warning")
             return False
+
+    async def schedule_queued_to_youtube(self, pipeline_id: str, max_uploads: int = 6) -> dict[str, Any]:
+        """Pre-upload queued clips to YouTube Studio with native publishAt slots for offline PC days."""
+        settings = get_settings()
+        scheduled = db.compute_pipeline_schedule(
+            pipeline_id,
+            settings.max_daily_youtube_per_pipeline,
+            settings.min_publish_interval_minutes,
+            limit=max_uploads,
+        )
+        uploaded: list[dict[str, Any]] = []
+        stopped_reason = ""
+        for item in scheduled:
+            if not item.get("rendered_path") or not Path(item["rendered_path"]).exists():
+                continue
+            ok = await self._try_autopublish_clip(
+                item,
+                notify_telegram=False,
+                publish_at_iso=item.get("scheduled_for"),
+            )
+            if ok:
+                uploaded.append(
+                    {
+                        "id": item["id"],
+                        "title": item["youtube_title"],
+                        "scheduled_for": item.get("scheduled_for"),
+                    }
+                )
+            else:
+                if time.time() < self._youtube_backoff_until.get(pipeline_id, 0.0):
+                    stopped_reason = "YouTube günlük kanal yükleme sınırına ulaşıldı; kalanlar sırada korundu."
+                    break
+        return {
+            "pipeline_id": pipeline_id,
+            "scheduled_count": len(uploaded),
+            "items": uploaded,
+            "stopped_reason": stopped_reason,
+        }
+
+    async def push_queue_to_telegram_vault(self, pipeline_id: Optional[str] = None) -> int:
+        """Send all unsent queued 9:16 videos and captions to Telegram Cloud for phone access."""
+        sent = 0
+        s = get_settings()
+        pids = [pipeline_id] if pipeline_id in {"tr", "global"} else ["tr", "global"]
+        for pid in pids:
+            items = db.compute_pipeline_schedule(
+                pid,
+                s.max_daily_youtube_per_pipeline,
+                s.min_publish_interval_minutes,
+                limit=s.max_queue_per_pipeline,
+            )
+            for clip in items:
+                if int(clip.get("telegram_message_id") or 0) > 0:
+                    continue
+                if not clip.get("rendered_path") or not Path(clip["rendered_path"]).exists():
+                    continue
+                await self.telegram.send_clip_for_approval(clip, autopilot_published=False)
+                sent += 1
+                await asyncio.sleep(1.0)
+        return sent
 
     async def _scheduler_loop(self) -> None:
         await asyncio.sleep(15.0)
@@ -394,35 +487,42 @@ class PipelineOrchestrator:
         if clip.get("status") == "rejected":
             return clip
 
+        scheduled = db.compute_pipeline_schedule(
+            pipeline_id,
+            settings.max_daily_youtube_per_pipeline,
+            settings.min_publish_interval_minutes,
+            limit=settings.max_queue_per_pipeline + 2,
+        )
+        match = next((c for c in scheduled if c["id"] == clip_id), None)
+        if match:
+            clip["queue_rank"] = match["queue_rank"]
+            clip["scheduled_for"] = match["scheduled_for"]
+
         autopilot_done = False
         if pipeline.get("autopilot") and verdict.viral_score >= settings.min_viral_score:
-            pacing = db.get_publish_pacing(pipeline_id)
-            within_daily_cap = pacing["published_last_24h"] < settings.max_daily_youtube_per_pipeline
-            last_min = pacing["minutes_since_last_publish"]
-            within_spacing = last_min is None or last_min >= settings.min_publish_interval_minutes
             not_backed_off = time.time() >= self._youtube_backoff_until.get(pipeline_id, 0.0)
-
-            if within_daily_cap and within_spacing and not_backed_off:
-                autopilot_done = await self._try_autopublish_clip(clip, notify_telegram=False)
+            if settings.youtube_schedule_ahead and not_backed_off and match:
+                autopilot_done = await self._try_autopublish_clip(
+                    clip,
+                    notify_telegram=False,
+                    publish_at_iso=match["scheduled_for"],
+                )
                 clip = db.get_clip(clip_id) or clip
             else:
-                db.add_log(
-                    f"Klip yayın sırasına eklendi ({pacing['published_last_24h']}/{settings.max_daily_youtube_per_pipeline} günlük)",
-                    pipeline_id=pipeline_id,
-                    source="autopilot",
-                )
+                pacing = db.get_publish_pacing(pipeline_id)
+                within_daily_cap = pacing["published_last_24h"] < settings.max_daily_youtube_per_pipeline
+                last_min = pacing["minutes_since_last_publish"]
+                within_spacing = last_min is None or last_min >= settings.min_publish_interval_minutes
 
-        if not autopilot_done:
-            scheduled = db.compute_pipeline_schedule(
-                pipeline_id,
-                settings.max_daily_youtube_per_pipeline,
-                settings.min_publish_interval_minutes,
-                limit=settings.max_queue_per_pipeline + 2,
-            )
-            match = next((c for c in scheduled if c["id"] == clip_id), None)
-            if match:
-                clip["queue_rank"] = match["queue_rank"]
-                clip["scheduled_for"] = match["scheduled_for"]
+                if within_daily_cap and within_spacing and not_backed_off:
+                    autopilot_done = await self._try_autopublish_clip(clip, notify_telegram=False)
+                    clip = db.get_clip(clip_id) or clip
+                else:
+                    db.add_log(
+                        f"Klip yayın sırasına eklendi ({pacing['published_last_24h']}/{settings.max_daily_youtube_per_pipeline} günlük)",
+                        pipeline_id=pipeline_id,
+                        source="autopilot",
+                    )
 
         await self.telegram.send_clip_for_approval(clip, autopilot_published=autopilot_done)
         await self._notify_n8n(clip)
@@ -445,6 +545,7 @@ class PipelineOrchestrator:
         override_title: Optional[str] = None,
         override_description: Optional[str] = None,
         override_caption: Optional[str] = None,
+        publish_at_iso: Optional[str] = None,
     ) -> dict[str, Any]:
         clip = db.get_clip(clip_id)
         if not clip:
@@ -471,6 +572,7 @@ class PipelineOrchestrator:
                     title=clip["youtube_title"],
                     description=clip["youtube_description"],
                     tags=clip["youtube_tags"],
+                    publish_at_iso=publish_at_iso,
                 )
                 results["youtube"] = yt_id
                 db.update_clip(clip_id, {"youtube_video_id": yt_id})
@@ -490,9 +592,18 @@ class PipelineOrchestrator:
                 results["errors"].append(f"Instagram: {exc}")
 
         if results["youtube"] or results["instagram"]:
-            db.update_clip(clip_id, {"status": "published"})
+            update_fields: dict[str, Any] = {"status": "published"}
+            log_prefix = "Yayınlandı"
+            if publish_at_iso and results["youtube"]:
+                try:
+                    local_dt = datetime.fromisoformat(publish_at_iso.replace("Z", "+00:00")).astimezone()
+                    log_prefix = f"YouTube Studio'da Planlandı ({local_dt.strftime('%d.%m %H:%M')})"
+                    update_fields["quality_reason"] = f"📅 {log_prefix} · {clip.get('quality_reason', '')}"
+                except ValueError:
+                    pass
+            db.update_clip(clip_id, update_fields)
             db.add_log(
-                f"Yayınlandı ({clip['streamer_display_name']}): YT={results['youtube'] or '-'} | IG={results['instagram'] or '-'}",
+                f"{log_prefix} ({clip['streamer_display_name']}): YT={results['youtube'] or '-'} | IG={results['instagram'] or '-'}",
                 pipeline_id=clip["pipeline_id"],
                 source="publisher",
             )

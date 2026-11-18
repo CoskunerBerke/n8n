@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     min_publish_interval_minutes: int = 210
     max_queue_per_pipeline: int = 12
     live_spike_cooldown_seconds: int = 900
+    strict_gta6_only: bool = True
+    youtube_schedule_ahead: bool = True
 
     twitch_client_id: str = ""
     twitch_client_secret: str = ""

@@ -27,12 +27,16 @@ class TelegramBotService:
         on_regen: Callable[[str], Awaitable[Optional[dict[str, Any]]]],
         on_scan: Callable[[str], Awaitable[dict[str, Any]]],
         on_submit_url: Callable[[str, str], Awaitable[dict[str, Any]]],
+        on_schedule_batch: Optional[Callable[[str], Awaitable[dict[str, Any]]]] = None,
+        on_vault_telegram: Optional[Callable[[Optional[str]], Awaitable[int]]] = None,
     ) -> None:
         self._on_publish = on_publish
         self._on_reject = on_reject
         self._on_regen = on_regen
         self._on_scan = on_scan
         self._on_submit_url = on_submit_url
+        self._on_schedule_batch = on_schedule_batch
+        self._on_vault_telegram = on_vault_telegram
         self._offset = 0
         self._running = False
         self._task: Optional[asyncio.Task[None]] = None
@@ -210,6 +214,8 @@ class TelegramBotService:
                 "Komutlar:\n"
                 "/durum - Canlı yayınlar ve günlük istatistik\n"
                 "/kuyruk - Sıradaki planlı YouTube yayın saatleri\n"
+                "/planla [tr|global] - Sıradaki klipleri YouTube Studio'ya planla (PC kapalıyken yayınlanır)\n"
+                "/paket - Bekleyen tüm 9:16 videoları Telegram bulutuna yedekle\n"
                 "/tara tr | /tara global - Hemen klip taraması başlat\n"
                 "/klip <tr|global> <url> - Linkten anında 9:16 klip üret\n"
                 "/yayinci_ekle <tr|global> <kick|twitch|youtube> <isim>\n"
@@ -298,6 +304,43 @@ class TelegramBotService:
             db.update_pipeline(pid, {"autopilot": enabled})
             durum = "AÇIK (otomatik paylaşım)" if enabled else "KAPALI (onay butonlu)"
             await self.send_text(f"⚙️ [{pid.upper()}] Otopilot: {durum}", chat_id=chat_id)
+
+        elif cmd == "/planla" and self._on_schedule_batch is not None:
+            target = parts[1].lower() if len(parts) >= 2 else "all"
+            if target not in {"tr", "global", "all", "hepsi"}:
+                await self.send_text("Kullanım: /planla tr veya /planla global (boş bırakırsan ikisi)", chat_id=chat_id)
+                return
+            pids = ["tr", "global"] if target in {"all", "hepsi"} else [target]
+            await self.send_text("⏳ Sıradaki klipler YouTube Studio'da ileri tarihe planlanıyor...", chat_id=chat_id)
+            asyncio.create_task(self._run_schedule_command(pids, chat_id))
+
+        elif cmd == "/paket" and self._on_vault_telegram is not None:
+            await self.send_text("📲 Sıradaki videolar Telegram'a yedekleniyor...", chat_id=chat_id)
+            asyncio.create_task(self._run_vault_command(chat_id))
+
+    async def _run_schedule_command(self, pids: list[str], chat_id: str) -> None:
+        assert self._on_schedule_batch is not None
+        try:
+            lines = ["📅 YouTube Studio Planlama Sonucu:"]
+            for pid in pids:
+                res = await self._on_schedule_batch(pid)
+                cnt = res.get("scheduled_count", 0)
+                note = f" ({res['stopped_reason']})" if res.get("stopped_reason") else ""
+                lines.append(f"[{pid.upper()}] {cnt} video planlandı{note}")
+                for it in res.get("items", []):
+                    dt_str = datetime.fromisoformat(it["scheduled_for"].replace("Z", "+00:00")).astimezone().strftime("%d.%m %H:%M")
+                    lines.append(f"  ✅ {dt_str} -> {it['title'][:45]}")
+            await self.send_text("\n".join(lines), chat_id=chat_id)
+        except Exception as exc:
+            await self.send_text(f"❌ Planlama hatası: {exc}", chat_id=chat_id)
+
+    async def _run_vault_command(self, chat_id: str) -> None:
+        assert self._on_vault_telegram is not None
+        try:
+            sent = await self._on_vault_telegram(None)
+            await self.send_text(f"✅ Telegram bulutuna {sent} yeni video yedeklendi.", chat_id=chat_id)
+        except Exception as exc:
+            await self.send_text(f"❌ Yedekleme hatası: {exc}", chat_id=chat_id)
 
     async def _run_scan_command(self, pid: str, chat_id: str) -> None:
         try:

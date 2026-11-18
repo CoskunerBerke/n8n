@@ -333,6 +333,30 @@ document.getElementById("btn-scan-tr").addEventListener("click", () => triggerSc
 document.getElementById("btn-scan-global").addEventListener("click", () => triggerScan("global"));
 document.getElementById("btn-refresh-all").addEventListener("click", refreshAll);
 
+async function scheduleBatch(pid) {
+  showToast(`${pid.toUpperCase()} kuyruğu YouTube Studio'ya planlanıyor...`);
+  try {
+    const res = await api(`/api/pipelines/${pid}/schedule-youtube-batch`, { method: "POST" });
+    showToast(`${pid.toUpperCase()}: ${res.scheduled_count} video ileri tarihe planlandı.`);
+    refreshAll();
+  } catch (err) {
+    showToast("Planlama hatası: " + err.message);
+  }
+}
+
+document.getElementById("btn-schedule-tr").addEventListener("click", () => scheduleBatch("tr"));
+document.getElementById("btn-schedule-global").addEventListener("click", () => scheduleBatch("global"));
+document.getElementById("btn-vault-telegram").addEventListener("click", async () => {
+  showToast("Sıradaki videolar Telegram bulutuna gönderiliyor...");
+  try {
+    const res = await api("/api/clips/send-vault-telegram", { method: "POST" });
+    showToast(`Telegram'a ${res.sent} video gönderildi.`);
+    refreshAll();
+  } catch (err) {
+    showToast("Telegram yedek hatası: " + err.message);
+  }
+});
+
 document.getElementById("manual-url-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const pipeline_id = document.getElementById("manual-pipeline").value;

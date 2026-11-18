@@ -46,6 +46,7 @@ class TwitchClient:
     def __init__(self) -> None:
         self._token: str = ""
         self._expires_at: float = 0.0
+        self._game_cache: dict[str, str] = {}
 
     def is_configured(self) -> bool:
         s = get_settings()
@@ -120,6 +121,21 @@ class TwitchClient:
                     mapping[str(user["login"]).lower()] = str(user["id"])
         return mapping
 
+    async def get_game_names(self, game_ids: list[str]) -> dict[str, str]:
+        missing = [gid for gid in dict.fromkeys(game_ids) if gid and gid not in self._game_cache]
+        if missing and self.is_configured():
+            headers = await self._headers()
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                for i in range(0, len(missing), 100):
+                    batch = missing[i : i + 100]
+                    params = [("id", gid) for gid in batch]
+                    resp = await client.get(f"{self.API_BASE}/games", headers=headers, params=params)
+                    if resp.status_code != 200:
+                        continue
+                    for game in resp.json().get("data", []):
+                        self._game_cache[str(game["id"])] = str(game["name"])
+        return {gid: self._game_cache.get(gid, "") for gid in game_ids if gid}
+
     async def get_trending_clips(
         self,
         usernames: list[str],
@@ -177,8 +193,13 @@ class TwitchClient:
                             "views_count": views,
                             "velocity": velocity,
                             "game_id": str(item.get("game_id") or ""),
+                            "category": "",
                         }
                     )
+
+        game_map = await self.get_game_names([c["game_id"] for c in candidates if c.get("game_id")])
+        for c in candidates:
+            c["category"] = game_map.get(c["game_id"], "")
 
         candidates.sort(key=lambda c: c["velocity"], reverse=True)
         return candidates

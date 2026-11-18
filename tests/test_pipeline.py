@@ -283,3 +283,20 @@ def test_queue_cap_and_schedule(isolated_env: Path) -> None:
     sched_capped = db.compute_pipeline_schedule("global", daily_cap=1, interval_minutes=210)
     assert len(sched_capped) == 2
     assert sched_capped[1]["scheduled_for"] > sched_capped[0]["scheduled_for"]
+
+
+def test_strict_gta6_game_filter() -> None:
+    from app.engine.game_filter import is_gta6_match
+
+    # Non-GTA 6 categories and titles must be rejected
+    assert is_gta6_match("Just Chatting", "insane reaction") is False
+    assert is_gta6_match("Counter-Strike 2", "ace clutch") is False
+    assert is_gta6_match("Grand Theft Auto V", "roleplay moments") is False
+    assert is_gta6_match("Grand Theft Auto VI", "FiveM RP server") is False
+    assert is_gta6_match("", "Playing GTA 5 Online tonight") is False
+
+    # Genuine GTA 6 categories/titles must pass
+    assert is_gta6_match("Grand Theft Auto VI", "OHA BU NE") is True
+    assert is_gta6_match("GTA VI", "First look") is True
+    assert is_gta6_match("Just Chatting", "Reacting to GTA 6 trailer") is True
+    assert is_gta6_match("", "GTA 6 Vice City first mission") is True

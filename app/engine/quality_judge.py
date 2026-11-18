@@ -456,6 +456,15 @@ def _build_ai_prompt(
     max_sec: int,
 ) -> str:
     target_lang = "Turkish (natural Turkish creator/viewer slang, engaging, concise)" if language == "tr" else "English (punchy Shorts/Reels hook, engaging)"
+    strict_rule = (
+        "0. STRICT GAME CHECK: This channel is ONLY for Grand Theft Auto VI (GTA 6). "
+        "Inspect the 6 frames, HUD, minimap, graphics, title, and transcript. "
+        "If this is ANY OTHER GAME (including GTA 5 / GTA Online / FiveM, RDR2, CS2, Valorant, Minecraft, indie games) "
+        "or Just Chatting/IRL where GTA 6 gameplay/trailer is NOT on screen, you MUST set approved=false "
+        "and reject_reason='GTA 6 dışı oyun/içerik elendi'.\n"
+        if get_settings().strict_gta6_only
+        else ""
+    )
     return (
         f"You are an expert GTA 6 Shorts/Reels video editor and viral clipper.\n"
         f"Inspect the 3x2 contact sheet frames (chronological #1 to #6) and the transcript below.\n"
@@ -464,6 +473,7 @@ def _build_ai_prompt(
         f"Duration: {duration:.1f}s\n"
         f"Transcript:\n{transcript[:1600] or '[No speech text]'}\n\n"
         f"STRICT REJECTION RULES (set approved=false if ANY applies):\n"
+        f"{strict_rule}"
         f"1. Streamer went AFK / bathroom break / empty chair with webcam showing nobody.\n"
         f"2. Boring silent menu/loading/pause/BRB screen with no action or funny/hype reaction.\n"
         f"3. Completely pointless filler where nothing interesting happens.\n"

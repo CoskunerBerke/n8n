@@ -167,6 +167,8 @@ async def fetch_channel_recent_clips(
             continue
         if platform == "youtube" and not clip_url.startswith("http"):
             clip_url = f"https://www.youtube.com/watch?v={clip_url}"
+        cats = item.get("categories") or []
+        category = str(cats[0]) if isinstance(cats, list) and cats else ""
         results.append(
             {
                 "source_id": clip_id or clip_url,
@@ -175,6 +177,7 @@ async def fetch_channel_recent_clips(
                 "duration": float(item.get("duration") or 0.0),
                 "views_count": int(item.get("view_count") or 0),
                 "uploader": str(item.get("uploader") or item.get("channel") or ""),
+                "category": category,
             }
         )
     return results

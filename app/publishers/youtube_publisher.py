@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -94,6 +95,7 @@ class YouTubePublisher:
         description: str,
         tags: list[str],
         privacy_status: str = "public",
+        publish_at_iso: Optional[str] = None,
     ) -> str:
         if not video_path.exists():
             raise FileNotFoundError(f"Yüklenecek video bulunamadı: {video_path}")
@@ -102,6 +104,22 @@ class YouTubePublisher:
         safe_desc = description.strip()
         if "#shorts" not in safe_title.lower() and "#shorts" not in safe_desc.lower():
             safe_desc = f"{safe_desc}\n\n#Shorts".strip()
+
+        status_obj: dict[str, Any] = {
+            "privacyStatus": privacy_status,
+            "selfDeclaredMadeForKids": False,
+        }
+        if publish_at_iso:
+            try:
+                pub_dt = datetime.fromisoformat(publish_at_iso.replace("Z", "+00:00")).astimezone(timezone.utc)
+                if (pub_dt - datetime.now(timezone.utc)).total_seconds() >= 900:
+                    status_obj = {
+                        "privacyStatus": "private",
+                        "publishAt": pub_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        "selfDeclaredMadeForKids": False,
+                    }
+            except ValueError:
+                pass
 
         def _upload_sync() -> str:
             creds = self._load_credentials(pipeline_id)
@@ -113,10 +131,7 @@ class YouTubePublisher:
                     "tags": [t.lstrip("#") for t in tags[:15]],
                     "categoryId": "20",  # Gaming
                 },
-                "status": {
-                    "privacyStatus": privacy_status,
-                    "selfDeclaredMadeForKids": False,
-                },
+                "status": status_obj,
             }
             media = MediaFileUpload(str(video_path), chunksize=4 * 1024 * 1024, resumable=True, mimetype="video/mp4")
             request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)

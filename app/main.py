@@ -198,6 +198,19 @@ async def run_pipeline_cycle(pipeline_id: str, max_new: int = 3) -> dict[str, An
     return await get_orchestrator().run_pipeline_cycle(pipeline_id, max_new=max_new)
 
 
+@app.post("/api/pipelines/{pipeline_id}/schedule-youtube-batch")
+async def schedule_youtube_batch(pipeline_id: str, max_uploads: int = 6) -> dict[str, Any]:
+    if pipeline_id not in {"global", "tr"}:
+        raise HTTPException(status_code=404, detail="Geçersiz pipeline ID (tr veya global olmalı)")
+    return await get_orchestrator().schedule_queued_to_youtube(pipeline_id, max_uploads=max_uploads)
+
+
+@app.post("/api/clips/send-vault-telegram")
+async def send_vault_telegram(pipeline_id: Optional[str] = None) -> dict[str, int]:
+    sent = await get_orchestrator().push_queue_to_telegram_vault(pipeline_id=pipeline_id)
+    return {"sent": sent}
+
+
 @app.get("/api/streamers")
 async def get_streamers(pipeline_id: Optional[str] = None) -> list[dict[str, Any]]:
     return db.list_streamers(pipeline_id=pipeline_id)
