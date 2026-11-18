@@ -28,7 +28,7 @@ class ClipScanner:
         self.twitch = twitch
         self.youtube_src = youtube_src
 
-    async def scan_pipeline_candidates(self, pipeline_id: str, limit_per_source: int = 8) -> list[dict[str, Any]]:
+    async def scan_pipeline_candidates(self, pipeline_id: str, limit_per_source: int = 20) -> list[dict[str, Any]]:
         pipeline = db.get_pipeline(pipeline_id)
         if not pipeline or not pipeline["clips_enabled"]:
             return []

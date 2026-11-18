@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     internal_scheduler_enabled: bool = True
     scan_interval_minutes: int = 10
     live_check_interval_seconds: int = 60
-    max_concurrent_live_streams: int = 4
+    max_concurrent_live_streams: int = 6
 
     ai_provider: str = "gemini"
     gemini_api_key: str = ""

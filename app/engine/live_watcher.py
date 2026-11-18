@@ -158,6 +158,7 @@ class LiveStreamWatcher:
 
         live_twitch_channels: list[str] = []
         active_keys_now: set[tuple[str, str]] = set()
+        live_candidates: dict[str, list[tuple[int, dict[str, Any], str, str]]] = {"tr": [], "global": []}
         now_iso = db.utc_now_iso()
 
         for st in streamers:
@@ -167,6 +168,7 @@ class LiveStreamWatcher:
             is_live = False
             live_title = ""
             game_name = ""
+            viewer_count = 0
             stream_url = ""
 
             if platform == "twitch" and self.twitch.is_configured():
@@ -175,12 +177,14 @@ class LiveStreamWatcher:
                     is_live = True
                     live_title = info.get("title", "")
                     game_name = info.get("game_name", "")
+                    viewer_count = int(info.get("viewer_count") or 0)
             elif platform == "kick" and self.kick.is_configured():
                 info = kick_live.get(uname)
                 if info and info.get("is_live"):
                     is_live = True
                     live_title = info.get("title", "")
                     game_name = info.get("game_name", "")
+                    viewer_count = int(info.get("viewer_count") or 0)
             else:
                 # Direct yt-dlp probe for YouTube or unauthenticated Kick/Twitch channels
                 if len(self._sessions) < settings.max_concurrent_live_streams or key in self._sessions:
@@ -222,19 +226,34 @@ class LiveStreamWatcher:
                 active_keys_now.add(key)
                 if platform == "twitch":
                     live_twitch_channels.append(uname)
-                if key not in self._sessions and len(self._sessions) < settings.max_concurrent_live_streams:
-                    if not stream_url:
-                        resolved = await ytdlp_helper.resolve_live_stream_url(st["channel_url"])
-                        stream_url = (resolved or {}).get("stream_url", "")
-                    if stream_url:
-                        await self._start_session(st, stream_url, live_title)
+                live_candidates.setdefault(st["pipeline_id"], []).append(
+                    (viewer_count, st, stream_url, live_title)
+                )
 
-        await self.chat_monitor.sync_channels(live_twitch_channels)
-
-        # Clean up streams that went offline
+        # Clean up streams that went offline first to free slots
         for existing_key in list(self._sessions.keys()):
             if existing_key not in active_keys_now:
                 await self._stop_session(existing_key)
+
+        # Fairly allocate live watcher slots per pipeline (e.g., 3 TR + 3 Global) sorted by viewers
+        per_pipeline_cap = max(2, settings.max_concurrent_live_streams // 2)
+        for pid, items in live_candidates.items():
+            items.sort(key=lambda t: t[0], reverse=True)
+            active_in_pid = sum(1 for s in self._sessions.values() if s.pipeline_id == pid)
+            for _, st, stream_url, live_title in items:
+                key = (st["platform"], st["username"])
+                if key in self._sessions:
+                    continue
+                if active_in_pid >= per_pipeline_cap or len(self._sessions) >= settings.max_concurrent_live_streams:
+                    break
+                if not stream_url:
+                    resolved = await ytdlp_helper.resolve_live_stream_url(st["channel_url"])
+                    stream_url = (resolved or {}).get("stream_url", "")
+                if stream_url:
+                    await self._start_session(st, stream_url, live_title)
+                    active_in_pid += 1
+
+        await self.chat_monitor.sync_channels(live_twitch_channels)
 
     async def _start_session(self, streamer: dict[str, Any], stream_url: str, title: str) -> None:
         settings = get_settings()

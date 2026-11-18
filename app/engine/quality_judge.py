@@ -230,16 +230,24 @@ def _analyze_visuals_sync(
         if not ok or frame is None:
             continue
         frames.append((float(ts), frame))
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        gray_small = cv2.resize(gray, (320, 180))
+        grays_small.append(gray_small)
+
         small_bgr = cv2.resize(frame, (320, 180))
         hsv_small = cv2.cvtColor(small_bgr, cv2.COLOR_BGR2HSV)
         purple_cyan_ratio = float(
             np.mean((hsv_small[:, :, 0] >= 80) & (hsv_small[:, :, 0] <= 168) & (hsv_small[:, :, 1] >= 70))
         )
-        if purple_cyan_ratio >= 0.92:
+        # Real Twitch commercial slates have smooth blur corners with zero HUD/webcam texture
+        corners_lap = [
+            float(cv2.Laplacian(gray_small[:40, :64], cv2.CV_64F).var()),
+            float(cv2.Laplacian(gray_small[:40, -64:], cv2.CV_64F).var()),
+            float(cv2.Laplacian(gray_small[-40:, :64], cv2.CV_64F).var()),
+            float(cv2.Laplacian(gray_small[-40:, -64:], cv2.CV_64F).var()),
+        ]
+        if purple_cyan_ratio >= 0.94 and float(np.mean(corners_lap)) < 25.0:
             ad_slate_frames += 1
-
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        grays_small.append(cv2.resize(gray, (320, 180)))
 
         if frontal_cascade is not None or profile_cascade is not None:
             detect_gray = cv2.resize(gray, (640, 360))
@@ -321,7 +329,7 @@ def _analyze_visuals_sync(
         "gameplay_motion_score": round(gameplay_motion, 2),
         "faces_detected": faces_detected,
         "empty_chair_suspected": empty_chair_suspected,
-        "ad_break_detected": ad_slate_frames >= 2,
+        "ad_break_detected": (ad_slate_frames >= 4 and faces_detected <= 1 and gameplay_motion < 12.0),
         "contact_sheet_path": str(contact_sheet_out),
     }
 
