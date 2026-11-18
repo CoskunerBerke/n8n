@@ -171,6 +171,8 @@ async def get_dashboard() -> dict[str, Any]:
         "accounts": {
             "youtube_global": orch.youtube_pub.is_connected("global"),
             "youtube_tr": orch.youtube_pub.is_connected("tr"),
+            "youtube_global_channel": orch.youtube_pub.get_channel_title("global"),
+            "youtube_tr_channel": orch.youtube_pub.get_channel_title("tr"),
             "instagram_global": orch.instagram_pub.is_configured("global"),
             "instagram_tr": orch.instagram_pub.is_configured("tr"),
             "telegram": orch.telegram.is_configured(),
@@ -199,7 +201,7 @@ async def run_pipeline_cycle(pipeline_id: str, max_new: int = 3) -> dict[str, An
 
 
 @app.post("/api/pipelines/{pipeline_id}/schedule-youtube-batch")
-async def schedule_youtube_batch(pipeline_id: str, max_uploads: int = 6) -> dict[str, Any]:
+async def schedule_youtube_batch(pipeline_id: str, max_uploads: int = 4) -> dict[str, Any]:
     if pipeline_id not in {"global", "tr"}:
         raise HTTPException(status_code=404, detail="Geçersiz pipeline ID (tr veya global olmalı)")
     return await get_orchestrator().schedule_queued_to_youtube(pipeline_id, max_uploads=max_uploads)
@@ -314,13 +316,20 @@ async def regenerate_metadata(clip_id: str) -> dict[str, Any]:
 
 @app.get("/api/settings")
 async def get_settings_endpoint() -> dict[str, Any]:
-    return get_public_settings_dict()
+    data = get_public_settings_dict()
+    orch = get_orchestrator()
+    data["youtube_global_channel"] = orch.youtube_pub.get_channel_title("global")
+    data["youtube_tr_channel"] = orch.youtube_pub.get_channel_title("tr")
+    return data
 
 
 @app.post("/api/settings")
 async def save_settings_endpoint(patch: dict[str, Any]) -> dict[str, Any]:
     updated = update_runtime_settings(patch)
     reload_settings()
+    orch = get_orchestrator()
+    updated["youtube_global_channel"] = orch.youtube_pub.get_channel_title("global")
+    updated["youtube_tr_channel"] = orch.youtube_pub.get_channel_title("tr")
     return updated
 
 

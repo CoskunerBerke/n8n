@@ -97,6 +97,7 @@
           "display_name": "RRaenee (Rane)",
           "platform": "kick",
           "channel_url": "https://kick.com/rraenee",
+          "enabled": false,
           "live_watch": true,
           "clip_scan": true
         },
@@ -105,6 +106,7 @@
           "display_name": "RRaenee (Rane)",
           "platform": "twitch",
           "channel_url": "https://www.twitch.tv/rraenee",
+          "enabled": false,
           "live_watch": true,
           "clip_scan": true
         },

@@ -27,6 +27,7 @@ class YouTubePublisher:
 
     def __init__(self) -> None:
         self._pending_flows: dict[str, tuple[str, Flow]] = {}
+        self._channel_cache: dict[str, tuple[float, str]] = {}
 
     def _token_path(self, pipeline_id: str) -> Path:
         filename = "youtube_tr_token.json" if pipeline_id == "tr" else "youtube_global_token.json"
@@ -43,6 +44,27 @@ class YouTubePublisher:
 
     def is_connected(self, pipeline_id: str) -> bool:
         return self._token_path(pipeline_id).exists()
+
+    def get_channel_title(self, pipeline_id: str) -> str:
+        """Return the authenticated YouTube channel title (cached per token mtime)."""
+        token_path = self._token_path(pipeline_id)
+        if not token_path.exists():
+            self._channel_cache.pop(pipeline_id, None)
+            return ""
+        try:
+            mtime = token_path.stat().st_mtime
+            cached = self._channel_cache.get(pipeline_id)
+            if cached and cached[0] == mtime:
+                return cached[1]
+            creds = self._load_credentials(pipeline_id)
+            youtube = build("youtube", "v3", credentials=creds, cache_discovery=False)
+            items = youtube.channels().list(part="snippet", mine=True).execute().get("items", [])
+            title = str(items[0]["snippet"]["title"]) if items else ""
+            self._channel_cache[pipeline_id] = (mtime, title)
+            return title
+        except Exception as exc:
+            logger.debug("YouTube kanal adı alınamadı (%s): %s", pipeline_id, exc)
+            return ""
 
     def build_auth_url(self, pipeline_id: str, redirect_uri: str) -> str:
         secrets_path = self._client_secrets_path(pipeline_id)

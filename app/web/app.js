@@ -42,6 +42,8 @@ function renderDashboard(data) {
       const st = data.pipeline_stats[p.id] || {};
       const flag = p.id === "tr" ? "🇹🇷 TÜRKÇE HATTI" : "🌍 GLOBAL HATTI";
       const ytOk = p.id === "tr" ? data.accounts.youtube_tr : data.accounts.youtube_global;
+      const ytChan = p.id === "tr" ? data.accounts.youtube_tr_channel : data.accounts.youtube_global_channel;
+      const ytLabel = ytOk ? (ytChan ? `Bağlı (${escapeHtml(ytChan)})` : "Bağlı") : "Bağlı Değil";
       const igOk = p.id === "tr" ? data.accounts.instagram_tr : data.accounts.instagram_global;
 
       return `
@@ -62,7 +64,7 @@ function renderDashboard(data) {
         </div>
 
         <div class="meta-label">
-          YouTube: ${ytOk ? "Bağlı" : "Bağlı Değil"} · Instagram: ${igOk ? "Bağlı" : "Bağlı Değil"}
+          YouTube: ${ytLabel} · Instagram: ${igOk ? "Bağlı" : "Bağlı Değil"}
         </div>
 
         <div class="toggle-row">
@@ -228,10 +230,10 @@ async function loadSettingsForm() {
     }
   }
   document.getElementById("yt-tr-status").textContent = s.youtube_tr_connected
-    ? "Bağlı (Yüklemeye hazır)"
+    ? (s.youtube_tr_channel ? `Bağlı: ${s.youtube_tr_channel}` : "Bağlı (Yüklemeye hazır)")
     : "Bağlı değil";
   document.getElementById("yt-global-status").textContent = s.youtube_global_connected
-    ? "Bağlı (Yüklemeye hazır)"
+    ? (s.youtube_global_channel ? `Bağlı: ${s.youtube_global_channel}` : "Bağlı (Yüklemeye hazır)")
     : "Bağlı değil";
   document.getElementById("yt-secret-status").textContent = s.youtube_client_secrets_exists
     ? "credentials/youtube_client_secret.json hazır"

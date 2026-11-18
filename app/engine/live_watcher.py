@@ -448,7 +448,7 @@ class LiveStreamWatcher:
                         "source_type": "live_spike",
                         "source_id": f"{session.username}_{int(time.time())}",
                         "source_url": session.channel_url,
-                        "source_title": f"{session.title} [{reason}]".strip(),
+                        "source_title": session.title.strip(),
                         "raw_path": raw_out,
                     }
                 )

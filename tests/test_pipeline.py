@@ -284,6 +284,17 @@ def test_queue_cap_and_schedule(isolated_env: Path) -> None:
     assert len(sched_capped) == 2
     assert sched_capped[1]["scheduled_for"] > sched_capped[0]["scheduled_for"]
 
+    # Confirm future scheduled_for on a published clip advances the next queued clip by >= 210 minutes
+    from datetime import datetime, timedelta, timezone
+
+    future_slot = (datetime.now(timezone.utc) + timedelta(hours=6)).isoformat()
+    db.update_clip("q_2", {"status": "published", "youtube_video_id": "yt_sched_1", "scheduled_for": future_slot})
+    sched_after = db.compute_pipeline_schedule("global", daily_cap=4, interval_minutes=210)
+    assert [c["id"] for c in sched_after] == ["q_3"]
+    next_dt = datetime.fromisoformat(sched_after[0]["scheduled_for"])
+    prev_dt = datetime.fromisoformat(future_slot)
+    assert (next_dt - prev_dt).total_seconds() >= 209 * 60
+
 
 def test_strict_gta6_game_filter() -> None:
     from app.engine.game_filter import is_gta6_match
@@ -300,3 +311,62 @@ def test_strict_gta6_game_filter() -> None:
     assert is_gta6_match("GTA VI", "First look") is True
     assert is_gta6_match("Just Chatting", "Reacting to GTA 6 trailer") is True
     assert is_gta6_match("", "GTA 6 Vice City first mission") is True
+
+
+def test_template_metadata_sanitization() -> None:
+    from app.engine.quality_judge import _build_template_metadata
+
+    meta = _build_template_metadata(
+        language="tr",
+        streamer_name="Elraenn",
+        source_title="GTA 6 Başladı !insta !kick [Ses/reaksiyon patlaması (-18.2 dB vs taban -36.0 dB)]",
+        transcript="Beyler bu araba ne böyle",
+        viral_score=8.7,
+    )
+    assert "[" not in meta["youtube_title"]
+    assert "Ses/reaksiyon" not in meta["youtube_title"]
+    assert "!insta" not in meta["youtube_title"]
+    assert "!kick" not in meta["youtube_title"]
+    assert "GTA 6 Başladı" in meta["youtube_title"]
+    assert "Ses/reaksiyon" not in meta["youtube_description"]
+
+
+def test_cross_pipeline_dedup_and_disabled_seed(isolated_env: Path) -> None:
+    # rraenee should be seeded disabled by default while active streamers stay enabled
+    tr_streamers = db.list_streamers("tr")
+    rraenee_rows = [s for s in tr_streamers if s["username"] == "rraenee"]
+    assert rraenee_rows and all(not s["enabled"] for s in rraenee_rows)
+
+    db.insert_clip(
+        {
+            "id": "dedup_clip_1",
+            "pipeline_id": "global",
+            "streamer_username": "xqc",
+            "streamer_display_name": "xQc",
+            "source_platform": "kick",
+            "source_type": "trending_clip",
+            "source_id": "shared_clip_999",
+            "source_url": "https://kick.com/xqc/clips/shared_clip_999",
+            "status": "pending_review",
+        }
+    )
+    # Cross-pipeline duplicate by source_platform+source_id or non-live_spike source_url must be blocked
+    assert db.clip_exists("tr", "kick", "shared_clip_999", "https://kick.com/other") is True
+    assert db.clip_exists("tr", "twitch", "other_id", "https://kick.com/xqc/clips/shared_clip_999") is True
+
+    # Live spike captures share the bare channel URL, so a second live spike with a new source_id must still pass
+    db.insert_clip(
+        {
+            "id": "dedup_live_1",
+            "pipeline_id": "global",
+            "streamer_username": "xqc",
+            "streamer_display_name": "xQc",
+            "source_platform": "kick",
+            "source_type": "live_spike",
+            "source_id": "xqc_1795000001",
+            "source_url": "https://kick.com/xqc",
+            "status": "pending_review",
+        }
+    )
+    assert db.clip_exists("global", "kick", "xqc_1795000999", "https://kick.com/xqc") is False
+    assert db.clip_exists("tr", "kick", "xqc_1795000999", "https://kick.com/xqc") is False

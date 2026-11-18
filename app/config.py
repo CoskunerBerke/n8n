@@ -43,7 +43,7 @@ class Settings(BaseSettings):
 
     ai_provider: str = "gemini"
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.5-flash-lite"
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     whisper_enabled: bool = True
@@ -54,12 +54,12 @@ class Settings(BaseSettings):
     clip_max_seconds: int = 45
     min_speech_words: int = 8
     min_non_silent_ratio: float = 0.25
-    max_daily_youtube_per_pipeline: int = 4
-    min_publish_interval_minutes: int = 210
+    max_daily_youtube_per_pipeline: int = 3
+    min_publish_interval_minutes: int = 240
     max_queue_per_pipeline: int = 12
     live_spike_cooldown_seconds: int = 900
     strict_gta6_only: bool = True
-    youtube_schedule_ahead: bool = True
+    youtube_schedule_ahead: bool = False
 
     twitch_client_id: str = ""
     twitch_client_secret: str = ""

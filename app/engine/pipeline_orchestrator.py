@@ -5,7 +5,7 @@ import logging
 import re
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -122,11 +122,19 @@ class PipelineOrchestrator:
                         )
                         if scheduled:
                             next_clip = scheduled[0]
-                            if next_clip.get("rendered_path") and Path(next_clip["rendered_path"]).exists():
+                            sched_iso = str(next_clip.get("scheduled_for") or "")
+                            within_5_days = True
+                            if sched_iso:
+                                try:
+                                    sched_dt = datetime.fromisoformat(sched_iso.replace("Z", "+00:00")).astimezone(timezone.utc)
+                                    within_5_days = (sched_dt - datetime.now(timezone.utc)).total_seconds() <= 5 * 86400
+                                except ValueError:
+                                    pass
+                            if within_5_days and next_clip.get("rendered_path") and Path(next_clip["rendered_path"]).exists():
                                 await self._try_autopublish_clip(
                                     next_clip,
                                     notify_telegram=True,
-                                    publish_at_iso=next_clip.get("scheduled_for"),
+                                    publish_at_iso=sched_iso,
                                 )
                         continue
 
@@ -188,7 +196,7 @@ class PipelineOrchestrator:
                 db.add_log(f"Otopilot yayın hatası: {exc}", pipeline_id=pid, level="warning")
             return False
 
-    async def schedule_queued_to_youtube(self, pipeline_id: str, max_uploads: int = 6) -> dict[str, Any]:
+    async def schedule_queued_to_youtube(self, pipeline_id: str, max_uploads: int = 4) -> dict[str, Any]:
         """Pre-upload queued clips to YouTube Studio with native publishAt slots for offline PC days."""
         settings = get_settings()
         scheduled = db.compute_pipeline_schedule(
@@ -199,9 +207,11 @@ class PipelineOrchestrator:
         )
         uploaded: list[dict[str, Any]] = []
         stopped_reason = ""
-        for item in scheduled:
+        for idx, item in enumerate(scheduled):
             if not item.get("rendered_path") or not Path(item["rendered_path"]).exists():
                 continue
+            if idx > 0 and uploaded:
+                await asyncio.sleep(12.0)
             ok = await self._try_autopublish_clip(
                 item,
                 notify_telegram=False,
@@ -502,12 +512,19 @@ class PipelineOrchestrator:
         if pipeline.get("autopilot") and verdict.viral_score >= settings.min_viral_score:
             not_backed_off = time.time() >= self._youtube_backoff_until.get(pipeline_id, 0.0)
             if settings.youtube_schedule_ahead and not_backed_off and match:
-                autopilot_done = await self._try_autopublish_clip(
-                    clip,
-                    notify_telegram=False,
-                    publish_at_iso=match["scheduled_for"],
-                )
-                clip = db.get_clip(clip_id) or clip
+                within_5_days = True
+                try:
+                    sched_dt = datetime.fromisoformat(match["scheduled_for"].replace("Z", "+00:00")).astimezone(timezone.utc)
+                    within_5_days = (sched_dt - datetime.now(timezone.utc)).total_seconds() <= 5 * 86400
+                except ValueError:
+                    pass
+                if within_5_days:
+                    autopilot_done = await self._try_autopublish_clip(
+                        clip,
+                        notify_telegram=False,
+                        publish_at_iso=match["scheduled_for"],
+                    )
+                    clip = db.get_clip(clip_id) or clip
             else:
                 pacing = db.get_publish_pacing(pipeline_id)
                 within_daily_cap = pacing["published_last_24h"] < settings.max_daily_youtube_per_pipeline
@@ -598,6 +615,7 @@ class PipelineOrchestrator:
                 try:
                     local_dt = datetime.fromisoformat(publish_at_iso.replace("Z", "+00:00")).astimezone()
                     log_prefix = f"YouTube Studio'da Planlandı ({local_dt.strftime('%d.%m %H:%M')})"
+                    update_fields["scheduled_for"] = publish_at_iso
                     update_fields["quality_reason"] = f"📅 {log_prefix} · {clip.get('quality_reason', '')}"
                 except ValueError:
                     pass

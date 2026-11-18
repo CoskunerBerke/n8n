@@ -98,6 +98,7 @@ def init_db() -> None:
                 youtube_video_id TEXT NOT NULL DEFAULT '',
                 instagram_media_id TEXT NOT NULL DEFAULT '',
                 telegram_message_id INTEGER NOT NULL DEFAULT 0,
+                scheduled_for TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -118,6 +119,10 @@ def init_db() -> None:
             );
             """
         )
+
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(clips)").fetchall()}
+        if "scheduled_for" not in cols:
+            conn.execute("ALTER TABLE clips ADD COLUMN scheduled_for TEXT NOT NULL DEFAULT ''")
 
         existing_count = conn.execute("SELECT COUNT(*) FROM pipelines").fetchone()[0]
         if existing_count == 0:
@@ -153,7 +158,7 @@ def _seed_default_pipelines(conn: sqlite3.Connection) -> None:
                 """
                 INSERT OR IGNORE INTO streamers
                 (pipeline_id, username, display_name, platform, channel_url, enabled, live_watch, clip_scan, created_at)
-                VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     p["id"],
@@ -161,6 +166,7 @@ def _seed_default_pipelines(conn: sqlite3.Connection) -> None:
                     s.get("display_name", s["username"]),
                     s["platform"].strip().lower(),
                     s["channel_url"].strip(),
+                    int(bool(s.get("enabled", True))),
                     int(bool(s.get("live_watch", True))),
                     int(bool(s.get("clip_scan", True))),
                     now,
@@ -236,6 +242,7 @@ def _clip_from_row(row: sqlite3.Row) -> dict[str, Any]:
         "youtube_video_id": row["youtube_video_id"],
         "instagram_media_id": row["instagram_media_id"],
         "telegram_message_id": row["telegram_message_id"],
+        "scheduled_for": row["scheduled_for"] if "scheduled_for" in row.keys() else "",
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -377,11 +384,11 @@ def clip_exists(pipeline_id: str, source_platform: str, source_id: str, source_u
         row = conn.execute(
             """
             SELECT 1 FROM clips
-            WHERE pipeline_id = ?
-              AND ((source_platform = ? AND source_id = ?) OR (source_url != '' AND source_url = ?))
+            WHERE (source_platform = ? AND source_id = ?)
+               OR (source_type != 'live_spike' AND source_url != '' AND source_url = ?)
             LIMIT 1
             """,
-            (pipeline_id, source_platform, source_id, source_url),
+            (source_platform, source_id, source_url),
         ).fetchone()
         return row is not None
 
@@ -399,9 +406,9 @@ def insert_clip(data: dict[str, Any]) -> dict[str, Any]:
                 gameplay_motion_score, faces_detected, viral_score, quality_reason,
                 status, reject_reason, youtube_title, youtube_description,
                 youtube_tags_json, instagram_caption, youtube_video_id,
-                instagram_media_id, telegram_message_id, created_at, updated_at
+                instagram_media_id, telegram_message_id, scheduled_for, created_at, updated_at
             ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
             """,
             (
@@ -436,6 +443,7 @@ def insert_clip(data: dict[str, Any]) -> dict[str, Any]:
                 data.get("youtube_video_id", ""),
                 data.get("instagram_media_id", ""),
                 int(data.get("telegram_message_id", 0)),
+                data.get("scheduled_for", ""),
                 now,
                 now,
             ),
@@ -470,6 +478,7 @@ def update_clip(clip_id: str, patch: dict[str, Any]) -> Optional[dict[str, Any]]
         "youtube_video_id",
         "instagram_media_id",
         "telegram_message_id",
+        "scheduled_for",
         "duration_sec",
     }
     sets: list[str] = []
@@ -679,12 +688,13 @@ def compute_pipeline_schedule(
     with get_conn() as conn:
         pub_rows = conn.execute(
             """
-            SELECT updated_at FROM clips
+            SELECT COALESCE(NULLIF(scheduled_for, ''), updated_at) AS slot_ts
+            FROM clips
             WHERE pipeline_id = ?
               AND status = 'published'
               AND youtube_video_id != ''
-              AND updated_at >= ?
-            ORDER BY updated_at ASC
+              AND COALESCE(NULLIF(scheduled_for, ''), updated_at) >= ?
+            ORDER BY slot_ts ASC
             """,
             (pipeline_id, cutoff_iso),
         ).fetchall()
@@ -703,9 +713,10 @@ def compute_pipeline_schedule(
     recent_publishes: list[datetime] = []
     for r in pub_rows:
         try:
-            recent_publishes.append(datetime.fromisoformat(str(r["updated_at"]).replace("Z", "+00:00")))
+            recent_publishes.append(datetime.fromisoformat(str(r["slot_ts"]).replace("Z", "+00:00")))
         except ValueError:
             continue
+    recent_publishes.sort()
 
     cursor = now
     if recent_publishes:
@@ -717,7 +728,7 @@ def compute_pipeline_schedule(
         clip = _clip_from_row(row)
         while True:
             window_start = cursor - timedelta(hours=24)
-            active_in_24h = [t for t in recent_publishes if t > window_start]
+            active_in_24h = [t for t in recent_publishes if window_start < t <= cursor]
             if len(active_in_24h) < cap:
                 break
             oldest_in_window = min(active_in_24h)

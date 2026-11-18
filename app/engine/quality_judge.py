@@ -378,6 +378,16 @@ def _clean_json_object(raw_text: str) -> dict[str, Any]:
     return json.loads(cleaned)
 
 
+def _sanitize_source_title(raw: str) -> str:
+    """Remove internal spike notes, chat !commands, URLs, and extra punctuation."""
+    text = str(raw or "")
+    text = re.sub(r"\[[^\]]*\]", " ", text)
+    text = re.sub(r"https?://\S+", " ", text)
+    text = re.sub(r"(?:^|\s)![A-Za-z0-9_]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip(" |•-:\t\r\n")
+    return text
+
+
 def _build_template_metadata(
     language: str,
     streamer_name: str,
@@ -389,7 +399,7 @@ def _build_template_metadata(
     if transcript:
         words = transcript.split()[:7]
         snippet = " ".join(words).strip(".,!?")
-    clean_title = source_title.strip() or snippet
+    clean_title = _sanitize_source_title(source_title) or snippet
 
     if language == "tr":
         yt_title = (
@@ -399,7 +409,7 @@ def _build_template_metadata(
         )[:70]
         yt_desc = (
             f"{streamer_name} GTA 6 yayınından öne çıkan kesit.\n\n"
-            f"Orijinal başlık: {source_title or 'Canlı yayın kesiti'}\n"
+            f"Orijinal başlık: {clean_title or 'Canlı yayın kesiti'}\n"
             f"Daha fazla Türkçe GTA 6 kesiti için abone olmayı unutma!\n\n"
             f"#gta6 #gta6türkçe #shorts #{streamer_name.lower().replace(' ', '')}"
         )
@@ -473,11 +483,12 @@ def _build_ai_prompt(
         if get_settings().strict_gta6_only
         else ""
     )
+    clean_title = _sanitize_source_title(source_title)
     return (
         f"You are an expert GTA 6 Shorts/Reels video editor and viral clipper.\n"
         f"Inspect the 3x2 contact sheet frames (chronological #1 to #6) and the transcript below.\n"
         f"Streamer: {streamer_name}\n"
-        f"Original Clip Title: {source_title or 'N/A'}\n"
+        f"Original Clip Title: {clean_title or 'N/A'}\n"
         f"Duration: {duration:.1f}s\n"
         f"Transcript:\n{transcript[:1600] or '[No speech text]'}\n\n"
         f"STRICT REJECTION RULES (set approved=false if ANY applies):\n"
@@ -503,31 +514,56 @@ def _build_ai_prompt(
 
 
 async def _evaluate_gemini(prompt: str, contact_sheet: Path, model_name: str, api_key: str) -> dict[str, Any]:
-    from google import genai
-    from google.genai import types
+    candidates: list[str] = []
+    for candidate in (
+        model_name,
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
+        "gemini-3.8-flash",
+        "gemini-3.6-flash",
+    ):
+        clean = (candidate or "").strip()
+        if clean and clean not in candidates:
+            candidates.append(clean)
 
-    def _call() -> str:
-        client = genai.Client(api_key=api_key)
-        parts: list[Any] = [prompt]
-        if contact_sheet.exists():
-            parts.append(
-                types.Part.from_bytes(
-                    data=contact_sheet.read_bytes(),
-                    mime_type="image/jpeg",
+    parts: list[dict[str, Any]] = [{"text": prompt}]
+    if contact_sheet.exists():
+        b64 = base64.b64encode(contact_sheet.read_bytes()).decode("ascii")
+        parts.append({"inlineData": {"mimeType": "image/jpeg", "data": b64}})
+
+    last_err = ""
+    async with httpx.AsyncClient(timeout=18.0) as client:
+        for model in candidates:
+            gen_cfg: dict[str, Any] = {
+                "responseMimeType": "application/json",
+                "temperature": 0.4,
+            }
+            if model.startswith("gemini-3.") and "lite" not in model:
+                gen_cfg["thinkingConfig"] = {"thinkingBudget": 0}
+            try:
+                resp = await client.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                    headers={"x-goog-api-key": api_key},
+                    json={"contents": [{"parts": parts}], "generationConfig": gen_cfg},
                 )
-            )
-        resp = client.models.generate_content(
-            model=model_name,
-            contents=parts,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=0.4,
-            ),
-        )
-        return resp.text or "{}"
+                if resp.status_code != 200:
+                    last_err = f"{model} HTTP {resp.status_code}: {resp.text[:160]}"
+                    logger.warning("Gemini model denemesi başarısız (%s)", last_err)
+                    continue
+                payload = resp.json()
+                cands = payload.get("candidates") or []
+                resp_parts = cands[0].get("content", {}).get("parts", []) if cands else []
+                raw = "".join(str(p.get("text") or "") for p in resp_parts).strip()
+                if not raw:
+                    last_err = f"{model} boş yanıt döndürdü"
+                    continue
+                return _clean_json_object(raw)
+            except Exception as exc:
+                last_err = f"{model}: {exc}"
+                logger.warning("Gemini model isteği başarısız (%s)", last_err)
+                continue
 
-    raw = await asyncio.to_thread(_call)
-    return _clean_json_object(raw)
+    raise RuntimeError(f"Tüm Gemini modelleri başarısız oldu: {last_err}")
 
 
 async def _evaluate_openai(prompt: str, contact_sheet: Path, model_name: str, api_key: str) -> dict[str, Any]:
