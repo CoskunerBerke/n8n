@@ -15,7 +15,11 @@ logger = logging.getLogger(__name__)
 class InstagramPublisher:
     """Publishes Reels to separate Global & Turkish Instagram accounts via Meta Graph API v21.0."""
 
-    GRAPH_BASE = "https://graph.facebook.com/v21.0"
+    GRAPH_FB_BASE = "https://graph.facebook.com/v21.0"
+    GRAPH_IG_BASE = "https://graph.instagram.com/v21.0"
+
+    def _graph_base(self, access_token: str) -> str:
+        return self.GRAPH_IG_BASE if access_token.strip().startswith("IGA") else self.GRAPH_FB_BASE
 
     def _credentials_for(self, pipeline_id: str) -> tuple[str, str]:
         s = get_settings()
@@ -68,11 +72,12 @@ class InstagramPublisher:
             raise FileNotFoundError(f"Reels videosu bulunamadı: {video_path}")
 
         video_url = await self._resolve_public_video_url(video_path)
+        graph_base = self._graph_base(access_token)
 
         async with httpx.AsyncClient(timeout=45.0) as client:
             # 1. Create Reels media container
             create_resp = await client.post(
-                f"{self.GRAPH_BASE}/{ig_user_id}/media",
+                f"{graph_base}/{ig_user_id}/media",
                 data={
                     "media_type": "REELS",
                     "video_url": video_url,
@@ -90,7 +95,7 @@ class InstagramPublisher:
             for _ in range(30):
                 await asyncio.sleep(5.0)
                 status_resp = await client.get(
-                    f"{self.GRAPH_BASE}/{container_id}",
+                    f"{graph_base}/{container_id}",
                     params={"fields": "status_code,status", "access_token": access_token},
                 )
                 status_data = status_resp.json()
@@ -104,7 +109,7 @@ class InstagramPublisher:
 
             # 3. Publish Reel
             pub_resp = await client.post(
-                f"{self.GRAPH_BASE}/{ig_user_id}/media_publish",
+                f"{graph_base}/{ig_user_id}/media_publish",
                 data={"creation_id": container_id, "access_token": access_token},
             )
             pub_data = pub_resp.json()
