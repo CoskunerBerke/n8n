@@ -720,7 +720,7 @@ def compute_pipeline_schedule(
             active_in_24h = [t for t in recent_publishes if t > window_start]
             if len(active_in_24h) < cap:
                 break
-            oldest_in_window = min(active_in_window)
+            oldest_in_window = min(active_in_24h)
             cursor = max(cursor, oldest_in_window + timedelta(hours=24, minutes=1))
 
         clip["queue_rank"] = idx

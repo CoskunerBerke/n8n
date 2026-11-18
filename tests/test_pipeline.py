@@ -278,3 +278,8 @@ def test_queue_cap_and_schedule(isolated_env: Path) -> None:
     assert sched[0]["queue_rank"] == 1
     assert sched[1]["queue_rank"] == 2
     assert sched[1]["scheduled_for"] > sched[0]["scheduled_for"]
+
+    # Also test rolling-24h cap spillover when daily_cap=1
+    sched_capped = db.compute_pipeline_schedule("global", daily_cap=1, interval_minutes=210)
+    assert len(sched_capped) == 2
+    assert sched_capped[1]["scheduled_for"] > sched_capped[0]["scheduled_for"]
