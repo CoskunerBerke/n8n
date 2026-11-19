@@ -723,10 +723,27 @@ def compute_pipeline_schedule(
         cursor = max(cursor, recent_publishes[-1] + timedelta(minutes=interval_minutes))
 
     cap = max(1, daily_cap)
+
+    def _align_prime_window(dt: datetime) -> datetime:
+        """Keep scheduled slots inside active audience hours (avoid 00:00-11:59 TR / dead-night UTC)."""
+        if pipeline_id == "tr":
+            # Turkey UTC+3: active prime window 13:00-23:30 TR => 10:00-20:30 UTC
+            if dt.hour < 10:
+                return dt.replace(hour=10, minute=0, second=0, microsecond=0)
+            if dt.hour >= 21:
+                nxt = dt + timedelta(days=1)
+                return nxt.replace(hour=10, minute=0, second=0, microsecond=0)
+        else:
+            # Global US/EU audience: active prime window 15:00-02:30 UTC (18:00-05:30 TR / 10:00-21:30 EST)
+            if 3 <= dt.hour < 15:
+                return dt.replace(hour=15, minute=0, second=0, microsecond=0)
+        return dt
+
     scheduled_clips: list[dict[str, Any]] = []
     for idx, row in enumerate(queued_rows, start=1):
         clip = _clip_from_row(row)
         while True:
+            cursor = _align_prime_window(cursor)
             window_start = cursor - timedelta(hours=24)
             active_in_24h = [t for t in recent_publishes if window_start < t <= cursor]
             if len(active_in_24h) < cap:

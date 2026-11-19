@@ -486,6 +486,8 @@ def _build_ai_prompt(
     clean_title = _sanitize_source_title(source_title)
     return (
         f"You are an expert GTA 6 Shorts/Reels video editor and viral clipper.\n"
+        f"IMPORTANT CONTEXT: Grand Theft Auto VI (GTA 6) has officially launched! Streamers are playing the FULL GAME live (cutscenes, gameplay, Vice City/Leonida). "
+        f"Do NOT call live gameplay or in-game cutscenes a 'trailer' or 'fragman' unless they are literally watching a YouTube trailer video.\n"
         f"Inspect the 3x2 contact sheet frames (chronological #1 to #6) and the transcript below.\n"
         f"Streamer: {streamer_name}\n"
         f"Original Clip Title: {clean_title or 'N/A'}\n"
