@@ -126,10 +126,16 @@ async def _measure_non_silent_ratio(video_path: Path, duration: float) -> float:
 
 
 def _transcribe_audio_sync(audio_path: Path, language: str, model_name: str) -> tuple[str, list[dict[str, Any]], int]:
+    import wave
+
     model = _get_whisper_model(model_name)
     lang_code = "tr" if language == "tr" else "en"
+    # Read 16kHz mono PCM WAV directly as float32 numpy array to bypass PyAV version issues
+    with wave.open(str(audio_path), "rb") as wf:
+        frames = wf.readframes(wf.getnframes())
+    audio_np = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
     raw_segments, _ = model.transcribe(
-        str(audio_path),
+        audio_np,
         language=lang_code,
         vad_filter=True,
         beam_size=1,

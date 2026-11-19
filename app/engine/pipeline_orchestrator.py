@@ -72,6 +72,7 @@ class PipelineOrchestrator:
             on_vault_telegram=self.push_queue_to_telegram_vault,
         )
         self._locks = {"global": asyncio.Lock(), "tr": asyncio.Lock()}
+        self._publish_locks = {"global": asyncio.Lock(), "tr": asyncio.Lock()}
         self._youtube_backoff_until: dict[str, float] = {}
         self._scheduler_task: Optional[asyncio.Task[None]] = None
         self._queue_task: Optional[asyncio.Task[None]] = None
@@ -198,43 +199,52 @@ class PipelineOrchestrator:
 
     async def schedule_queued_to_youtube(self, pipeline_id: str, max_uploads: int = 4) -> dict[str, Any]:
         """Pre-upload queued clips to YouTube Studio with native publishAt slots for offline PC days."""
-        settings = get_settings()
-        scheduled = db.compute_pipeline_schedule(
-            pipeline_id,
-            settings.max_daily_youtube_per_pipeline,
-            settings.min_publish_interval_minutes,
-            limit=max_uploads,
-        )
-        uploaded: list[dict[str, Any]] = []
-        stopped_reason = ""
-        for idx, item in enumerate(scheduled):
-            if not item.get("rendered_path") or not Path(item["rendered_path"]).exists():
-                continue
-            if idx > 0 and uploaded:
-                await asyncio.sleep(12.0)
-            ok = await self._try_autopublish_clip(
-                item,
-                notify_telegram=False,
-                publish_at_iso=item.get("scheduled_for"),
+        pub_lock = self._publish_locks.setdefault(pipeline_id, asyncio.Lock())
+        if pub_lock.locked():
+            return {
+                "pipeline_id": pipeline_id,
+                "scheduled_count": 0,
+                "items": [],
+                "stopped_reason": "Planlama işlemi zaten çalışıyor.",
+            }
+        async with pub_lock:
+            settings = get_settings()
+            scheduled = db.compute_pipeline_schedule(
+                pipeline_id,
+                settings.max_daily_youtube_per_pipeline,
+                settings.min_publish_interval_minutes,
+                limit=max_uploads,
             )
-            if ok:
-                uploaded.append(
-                    {
-                        "id": item["id"],
-                        "title": item["youtube_title"],
-                        "scheduled_for": item.get("scheduled_for"),
-                    }
+            uploaded: list[dict[str, Any]] = []
+            stopped_reason = ""
+            for idx, item in enumerate(scheduled):
+                if not item.get("rendered_path") or not Path(item["rendered_path"]).exists():
+                    continue
+                if idx > 0 and uploaded:
+                    await asyncio.sleep(12.0)
+                ok = await self._try_autopublish_clip(
+                    item,
+                    notify_telegram=False,
+                    publish_at_iso=item.get("scheduled_for"),
                 )
-            else:
-                if time.time() < self._youtube_backoff_until.get(pipeline_id, 0.0):
-                    stopped_reason = "YouTube günlük kanal yükleme sınırına ulaşıldı; kalanlar sırada korundu."
-                    break
-        return {
-            "pipeline_id": pipeline_id,
-            "scheduled_count": len(uploaded),
-            "items": uploaded,
-            "stopped_reason": stopped_reason,
-        }
+                if ok:
+                    uploaded.append(
+                        {
+                            "id": item["id"],
+                            "title": item["youtube_title"],
+                            "scheduled_for": item.get("scheduled_for"),
+                        }
+                    )
+                else:
+                    if time.time() < self._youtube_backoff_until.get(pipeline_id, 0.0):
+                        stopped_reason = "YouTube günlük kanal yükleme sınırına ulaşıldı; kalanlar sırada korundu."
+                        break
+            return {
+                "pipeline_id": pipeline_id,
+                "scheduled_count": len(uploaded),
+                "items": uploaded,
+                "stopped_reason": stopped_reason,
+            }
 
     async def push_queue_to_telegram_vault(self, pipeline_id: Optional[str] = None) -> int:
         """Send all unsent queued 9:16 videos and captions to Telegram Cloud for phone access."""
@@ -567,6 +577,18 @@ class PipelineOrchestrator:
         clip = db.get_clip(clip_id)
         if not clip:
             raise ValueError(f"Klip bulunamadı: {clip_id}")
+        if clip.get("status") == "publishing":
+            raise RuntimeError("Bu klip şu anda yükleniyor; çift yükleme engellendi.")
+        if clip.get("status") == "published" and "youtube" in targets and clip.get("youtube_video_id"):
+            return {
+                "clip_id": clip_id,
+                "youtube": clip.get("youtube_video_id"),
+                "instagram": clip.get("instagram_media_id") or None,
+                "errors": [],
+                "summary": f"Zaten yayınlandı: https://youtube.com/shorts/{clip['youtube_video_id']}",
+                "clip": clip,
+            }
+        db.update_clip(clip_id, {"status": "publishing"})
 
         patch: dict[str, Any] = {}
         if override_title is not None:

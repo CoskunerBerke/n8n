@@ -38,6 +38,7 @@ class TelegramBotService:
         self._on_schedule_batch = on_schedule_batch
         self._on_vault_telegram = on_vault_telegram
         self._offset = 0
+        self._started_at = 0.0
         self._running = False
         self._task: Optional[asyncio.Task[None]] = None
 
@@ -48,6 +49,7 @@ class TelegramBotService:
     def start(self) -> None:
         if not self._task or self._task.done():
             self._running = True
+            self._started_at = datetime.now().timestamp()
             self._task = asyncio.create_task(self._poll_loop())
 
     async def stop(self) -> None:
@@ -203,6 +205,10 @@ class TelegramBotService:
             return
         message = upd.get("message")
         if not message or not message.get("text"):
+            return
+        # Ignore stale queued commands sent before this bot process started
+        msg_date = float(message.get("date") or 0)
+        if self._started_at and msg_date and (self._started_at - msg_date) > 90.0:
             return
         chat_id = str(message["chat"]["id"])
         text = str(message["text"]).strip()
